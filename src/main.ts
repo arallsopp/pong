@@ -53,9 +53,12 @@ scene.add(aiMesh)
 //   tau       = follow lag in seconds (temporal damping; 0 = rigid snap)
 // Adjust in-session: [ ] change coupling, - = change tau, R toggles reticle.
 const tuning = { coupling: 0.7, tau: 0.07, reticle: true }
+const CAM_MARGIN = 1.5 // how close the camera may get to a wall before clamping
 const camZ = paddleZ + 2.5
 const camera = new PerspectiveCamera(55, 1, 0.1, 200)
 const camXY = { x: 0, y: 0 } // damped camera position, eased toward target
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 
 // --- Ball ---
 const ball: BallState = {
@@ -165,10 +168,14 @@ function frame() {
     acc -= DT
   }
 
-  // Camera target = paddle position scaled by coupling. Ease toward it with a
-  // frame-rate-independent lag of time-constant tau (0 => rigid snap).
-  const targetX = player.x * tuning.coupling
-  const targetY = player.y * tuning.coupling
+  // Camera target = paddle position scaled by coupling, then clamped to stay a
+  // small margin inside the walls. This is independent of the paddle's own
+  // (wider) bounds: the paddle can overhang into the corner while the camera
+  // gets very close but never crosses the wall and clips the corner geometry.
+  const cmx = arena.hx - CAM_MARGIN
+  const cmy = arena.hy - CAM_MARGIN
+  const targetX = clamp(player.x * tuning.coupling, -cmx, cmx)
+  const targetY = clamp(player.y * tuning.coupling, -cmy, cmy)
   const k = tuning.tau > 0 ? 1 - Math.exp(-frameDt / tuning.tau) : 1
   camXY.x += (targetX - camXY.x) * k
   camXY.y += (targetY - camXY.y) * k
