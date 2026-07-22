@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
 import type { Arena } from '../arena/Arena'
+import type { Paddle } from './Paddle'
 
 const _n = new Vector3()
 const _step = new Vector3()
@@ -15,6 +16,8 @@ export interface StepResult {
   goal?: 'near' | 'far'
   /** Number of court-wall bounces this step. */
   bounces: number
+  /** Set when a paddle struck the ball this step. */
+  paddleHit?: Paddle
 }
 
 /**
@@ -29,6 +32,7 @@ export function stepBall(
   ball: BallState,
   arena: Arena,
   dt: number,
+  paddles: Paddle[] = [],
   restitution = 1.0,
 ): StepResult {
   const result: StepResult = { bounces: 0 }
@@ -36,7 +40,15 @@ export function stepBall(
   _step.copy(ball.vel).multiplyScalar(dt)
   ball.pos.add(_step)
 
-  // Goal check first — reaching an end zone ends the rally regardless of walls.
+  // Paddles are tested before the goal so an interception saves the point.
+  for (const p of paddles) {
+    if (p.collide(ball)) {
+      result.paddleHit = p
+      return result
+    }
+  }
+
+  // Goal check — reaching an end zone ends the rally regardless of walls.
   const zone = arena.zoneAt(ball.pos)
   if (zone !== 'court') {
     result.goal = zone
