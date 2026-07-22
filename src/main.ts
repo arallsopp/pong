@@ -1,6 +1,11 @@
 import {
+  BufferGeometry,
+  CircleGeometry,
   Color,
+  Float32BufferAttribute,
   Fog,
+  Line,
+  LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
   PerspectiveCamera,
@@ -63,6 +68,26 @@ const ballMesh = new Mesh(
   new MeshBasicMaterial({ color: 0x67e8f9 }),
 )
 scene.add(ballMesh)
+
+// Floor shadow — a spot on the bottom wall directly below the ball. Its z races
+// up the floor grid as the ball nears, which is the primary "approach" cue.
+const floorY = -arena.hy + 0.05
+const shadow = new Mesh(
+  new CircleGeometry(ball.radius, 24),
+  new MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.35 }),
+)
+shadow.rotation.x = -Math.PI / 2 // lay flat on the floor (normal +y)
+scene.add(shadow)
+
+// Drop-line connecting the ball to its shadow — reads the ball's height and,
+// together with the shadow, disambiguates depth from vertical position.
+const dropGeo = new BufferGeometry()
+dropGeo.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3))
+const dropLine = new Line(
+  dropGeo,
+  new LineBasicMaterial({ color: 0x0e7490, transparent: true, opacity: 0.6 }),
+)
+scene.add(dropLine)
 
 // Predicted-impact reticle: where the incoming ball will cross the paddle plane.
 const reticle = new Mesh(
@@ -152,6 +177,16 @@ function frame() {
 
   ballMesh.position.copy(ball.pos)
   aiMesh.position.set(ai.x, ai.y, ai.z)
+
+  // Floor shadow tracks the ball's x/z; scale it up as the ball nears the player
+  // so approach reads as a growing spot as well as a racing one.
+  const nearT = (ball.pos.z + arena.depth / 2) / arena.depth // 0 far … 1 near
+  shadow.position.set(ball.pos.x, floorY, ball.pos.z)
+  shadow.scale.setScalar(0.7 + nearT * 0.9)
+  const dp = dropLine.geometry.getAttribute('position') as Float32BufferAttribute
+  dp.setXYZ(0, ball.pos.x, ball.pos.y, ball.pos.z)
+  dp.setXYZ(1, ball.pos.x, floorY, ball.pos.z)
+  dp.needsUpdate = true
 
   // Predicted-impact reticle on the player's paddle plane.
   const hit = tuning.reticle ? predictImpact(ball, arena, paddleZ, DT) : null

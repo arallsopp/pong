@@ -22,7 +22,7 @@ export class RectArena implements Arena {
   /** Fraction of depth at each end that counts as the goal zone. */
   readonly endFrac = 0.08
 
-  constructor(hx = 12, hy = 20, depth = 40) {
+  constructor(hx = 12, hy = 13, depth = 40) {
     this.hx = hx
     this.hy = hy
     this.depth = depth
