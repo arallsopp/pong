@@ -19,6 +19,7 @@ import { RectArena } from './arena/RectArena'
 import { predictImpact, stepBall, type BallState } from './physics/Ball'
 import { Paddle } from './physics/Paddle'
 import { Stick } from './input/Stick'
+import { Trail } from './render/Trail'
 
 const app = document.getElementById('app')!
 const debug = document.getElementById('debug')!
@@ -82,6 +83,10 @@ const shadow = new Mesh(
 shadow.rotation.x = -Math.PI / 2 // lay flat on the floor (normal +y)
 scene.add(shadow)
 
+// Motion trail behind the ball.
+const trail = new Trail()
+scene.add(trail.object)
+
 // Drop-line connecting the ball to its shadow — reads the ball's height and,
 // together with the shadow, disambiguates depth from vertical position.
 const dropGeo = new BufferGeometry()
@@ -126,6 +131,7 @@ function serve(toward: 1 | -1) {
   const ay = (Math.random() - 0.5) * 0.9
   ball.vel.set(Math.sin(ax) * speed, Math.sin(ay) * speed, toward * Math.abs(Math.cos(ax) * speed))
   rallyHits = 0
+  trail.reset(ball.pos)
 }
 serve(1) // first serve travels toward the player
 
@@ -183,6 +189,7 @@ function frame() {
   camera.lookAt(camXY.x, camXY.y, -arena.depth)
 
   ballMesh.position.copy(ball.pos)
+  trail.update(ball.pos)
   aiMesh.position.set(ai.x, ai.y, ai.z)
 
   // Floor shadow tracks the ball's x/z; scale it up as the ball nears the player
