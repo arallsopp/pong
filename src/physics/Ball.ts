@@ -28,6 +28,36 @@ export interface StepResult {
  * without full swept-sphere CCD, but the penetration correction prevents the
  * ball from resting inside a wall.
  */
+const _pball: BallState = { pos: new Vector3(), vel: new Vector3(), radius: 0 }
+
+/**
+ * Predict where the ball will cross the player's paddle plane (z = planeZ,
+ * approached from -z, i.e. moving toward +z), accounting for wall bounces by
+ * reusing the real integrator. Returns the crossing x/y, or null if the ball
+ * is heading away or won't arrive within maxSteps.
+ */
+export function predictImpact(
+  ball: BallState,
+  arena: Arena,
+  planeZ: number,
+  dt: number,
+  maxSteps = 2000,
+): { x: number; y: number } | null {
+  if (ball.vel.z <= 0) return null // not heading toward the player
+  _pball.pos.copy(ball.pos)
+  _pball.vel.copy(ball.vel)
+  _pball.radius = ball.radius
+  for (let i = 0; i < maxSteps; i++) {
+    const prevZ = _pball.pos.z
+    const r = stepBall(_pball, arena, dt)
+    if (r.goal) return null // lands in a goal, not on our plane
+    if (prevZ < planeZ && _pball.pos.z >= planeZ) {
+      return { x: _pball.pos.x, y: _pball.pos.y }
+    }
+  }
+  return null
+}
+
 export function stepBall(
   ball: BallState,
   arena: Arena,

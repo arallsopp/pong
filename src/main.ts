@@ -11,7 +11,7 @@ import {
   WebGLRenderer,
 } from 'three'
 import { RectArena } from './arena/RectArena'
-import { stepBall, type BallState } from './physics/Ball'
+import { predictImpact, stepBall, type BallState } from './physics/Ball'
 import { Paddle } from './physics/Paddle'
 import { Stick } from './input/Stick'
 
@@ -43,10 +43,14 @@ const aiMesh = new Mesh(
 )
 scene.add(aiMesh)
 
-// --- Camera: rigidly locked to the player paddle (coupling tunable 0..1) ---
-const CAMERA_COUPLING = 1.0
+// --- Camera: coupled to the player paddle. Two live-tunable knobs:
+//   coupling  = how far the camera moves vs the paddle (spatial, 0..1)
+//   tau       = follow lag in seconds (temporal damping; 0 = rigid snap)
+// Adjust in-session: [ ] change coupling, - = change tau, R toggles reticle.
+const tuning = { coupling: 0.7, tau: 0.07, reticle: true }
 const camZ = paddleZ + 2.5
 const camera = new PerspectiveCamera(55, 1, 0.1, 200)
+const camXY = { x: 0, y: 0 } // damped camera position, eased toward target
 
 // --- Ball ---
 const ball: BallState = {
@@ -60,8 +64,25 @@ const ballMesh = new Mesh(
 )
 scene.add(ballMesh)
 
+// Predicted-impact reticle: where the incoming ball will cross the paddle plane.
+const reticle = new Mesh(
+  new RingGeometry(0.6, 0.9, 24),
+  new MeshBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.9 }),
+)
+reticle.visible = false
+scene.add(reticle)
+
 // --- Input ---
 const stick = new Stick(renderer.domElement)
+
+// Desktop tuning keys so the camera feel can be dialled in live.
+window.addEventListener('keydown', (e) => {
+  if (e.key === '[') tuning.coupling = Math.max(0, +(tuning.coupling - 0.1).toFixed(2))
+  else if (e.key === ']') tuning.coupling = Math.min(1, +(tuning.coupling + 0.1).toFixed(2))
+  else if (e.key === '-') tuning.tau = Math.max(0, +(tuning.tau - 0.02).toFixed(2))
+  else if (e.key === '=') tuning.tau = +(tuning.tau + 0.02).toFixed(2)
+  else if (e.key.toLowerCase() === 'r') tuning.reticle = !tuning.reticle
+})
 
 // --- Match state ---
 let scorePlayer = 0
@@ -111,24 +132,41 @@ function update(dt: number) {
 
 function frame() {
   const now = performance.now() / 1000
-  acc += Math.min(now - last, MAX_FRAME)
+  const frameDt = Math.min(now - last, MAX_FRAME)
+  acc += frameDt
   last = now
   while (acc >= DT) {
     update(DT)
     acc -= DT
   }
 
-  // Rigid camera: translate with the paddle, looking straight down-court.
-  camera.position.set(player.x * CAMERA_COUPLING, player.y * CAMERA_COUPLING, camZ)
-  camera.lookAt(player.x * CAMERA_COUPLING, player.y * CAMERA_COUPLING, -arena.depth)
+  // Camera target = paddle position scaled by coupling. Ease toward it with a
+  // frame-rate-independent lag of time-constant tau (0 => rigid snap).
+  const targetX = player.x * tuning.coupling
+  const targetY = player.y * tuning.coupling
+  const k = tuning.tau > 0 ? 1 - Math.exp(-frameDt / tuning.tau) : 1
+  camXY.x += (targetX - camXY.x) * k
+  camXY.y += (targetY - camXY.y) * k
+  camera.position.set(camXY.x, camXY.y, camZ)
+  camera.lookAt(camXY.x, camXY.y, -arena.depth)
 
   ballMesh.position.copy(ball.pos)
   aiMesh.position.set(ai.x, ai.y, ai.z)
 
+  // Predicted-impact reticle on the player's paddle plane.
+  const hit = tuning.reticle ? predictImpact(ball, arena, paddleZ, DT) : null
+  if (hit) {
+    reticle.position.set(hit.x, hit.y, paddleZ)
+    reticle.visible = true
+  } else {
+    reticle.visible = false
+  }
+
   debug.textContent =
     `you ${scorePlayer} — ${scoreAI} ai\n` +
     `rally hits ${rallyHits}\n` +
-    `|v| ${ball.vel.length().toFixed(1)}  z ${ball.pos.z.toFixed(1)}`
+    `|v| ${ball.vel.length().toFixed(1)}  z ${ball.pos.z.toFixed(1)}\n` +
+    `coupling ${tuning.coupling}  tau ${tuning.tau}  reticle ${tuning.reticle ? 'on' : 'off'}`
 
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
