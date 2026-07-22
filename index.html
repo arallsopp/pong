@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#000000" />
+    <title>FP Pong</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+      body { touch-action: none; -webkit-user-select: none; user-select: none; }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; width: 100%; height: 100%; }
+      #hud {
+        position: fixed; inset: 0; pointer-events: none;
+        font: 600 14px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+        color: #9ff;
+      }
+      #hud .debug {
+        position: absolute; top: env(safe-area-inset-top, 8px); left: 12px;
+        white-space: pre; opacity: 0.75; text-shadow: 0 0 8px #0ff;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud"><div class="debug" id="debug"></div></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
