@@ -53,7 +53,10 @@ scene.add(aiMesh)
 //   coupling  = how far the camera moves vs the paddle (spatial, 0..1)
 //   tau       = follow lag in seconds (temporal damping; 0 = rigid snap)
 // Adjust in-session: [ ] change coupling, - = change tau, R toggles reticle.
-const tuning = { coupling: 0.7, tau: 0.07, reticle: true }
+// nearGain/farGain schedule the control sensitivity by ball distance: full
+// farGain when the ball is at the far wall, down to nearGain when it's on top
+// of us. Compensates for parallax so movement feels uniform end-to-end.
+const tuning = { coupling: 0.7, tau: 0.07, reticle: true, nearGain: 0.55, farGain: 1.4 }
 const CAM_MARGIN = 1.5 // how close the camera may get to a wall before clamping
 const camZ = paddleZ + 2.5
 const camera = new PerspectiveCamera(55, 1, 0.1, 200)
@@ -114,6 +117,8 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === ']') tuning.coupling = Math.min(1, +(tuning.coupling + 0.1).toFixed(2))
   else if (e.key === '-') tuning.tau = Math.max(0, +(tuning.tau - 0.02).toFixed(2))
   else if (e.key === '=') tuning.tau = +(tuning.tau + 0.02).toFixed(2)
+  else if (e.key === ',') tuning.nearGain = Math.max(0.1, +(tuning.nearGain - 0.05).toFixed(2))
+  else if (e.key === '.') tuning.nearGain = +(tuning.nearGain + 0.05).toFixed(2)
   else if (e.key.toLowerCase() === 'r') tuning.reticle = !tuning.reticle
 })
 
@@ -121,6 +126,7 @@ window.addEventListener('keydown', (e) => {
 let scorePlayer = 0
 let scoreAI = 0
 let rallyHits = 0
+let ctrlGain = 1 // current distance-scheduled control gain (for the readout)
 
 function serve(toward: 1 | -1) {
   // Serve from just in front of the server's paddle toward the other end.
@@ -145,10 +151,14 @@ let acc = 0
 let last = performance.now() / 1000
 
 function update(dt: number) {
-  // Player paddle target from stick, integrated for an analog feel.
-  const tx = player.x + stick.x * PADDLE_SPEED * dt
-  const ty = player.y + stick.y * PADDLE_SPEED * dt
-  player.moveToward(tx, ty, PADDLE_SPEED, dt, arena)
+  // Player paddle target from stick, with sensitivity scheduled by ball
+  // distance (high far, low near) so movement feels uniform despite parallax.
+  const nearT = clamp((ball.pos.z + arena.depth / 2) / arena.depth, 0, 1)
+  ctrlGain = tuning.farGain + (tuning.nearGain - tuning.farGain) * nearT
+  const pspeed = PADDLE_SPEED * ctrlGain
+  const tx = player.x + stick.x * pspeed * dt
+  const ty = player.y + stick.y * pspeed * dt
+  player.moveToward(tx, ty, pspeed, dt, arena)
 
   // AI tracks the ball's x/y with capped speed (its beatability lever).
   ai.moveToward(ball.pos.x, ball.pos.y, AI_SPEED, dt, arena)
@@ -215,7 +225,8 @@ function frame() {
     `you ${scorePlayer} — ${scoreAI} ai\n` +
     `rally hits ${rallyHits}\n` +
     `|v| ${ball.vel.length().toFixed(1)}  z ${ball.pos.z.toFixed(1)}\n` +
-    `coupling ${tuning.coupling}  tau ${tuning.tau}  reticle ${tuning.reticle ? 'on' : 'off'}`
+    `coupling ${tuning.coupling}  tau ${tuning.tau}  reticle ${tuning.reticle ? 'on' : 'off'}\n` +
+    `gain ${ctrlGain.toFixed(2)} (near ${tuning.nearGain} far ${tuning.farGain})`
 
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
