@@ -515,16 +515,17 @@ function updateRamp(dt: number) {
   ballY = _cp.y
 }
 
-function serve(toward: number) {
+/** Park the ball at centre, still, and clear everything a new point should clear. */
+function placeForServe() {
   ball.x = 0
   ball.z = 0
-  const ang = (Math.random() - 0.5) * 1.0
-  ball.vx = Math.sin(ang) * BALL_START_SPEED
-  ball.vz = toward * Math.abs(Math.cos(ang) * BALL_START_SPEED)
+  ball.vx = 0
+  ball.vz = 0
   ballY = BALL_R
   onRamp = false
   possession = null
-  rally = 0 // fresh point: let the camera ease back up
+  rally = 0 // fresh point: the camera goes back to its resting angle
+  rallyLower = 0 // snapped, not eased — we're cutting to the wide shot anyway
   rollAiAim()
   rampCooldown = 1.0 // don't let the ramp grab the ball at kickoff
   // Reset murderball + reform any shattered paddle.
@@ -535,7 +536,145 @@ function serve(toward: number) {
   playerMesh.visible = true
   aiMesh.visible = true
 }
+
+/** Send the parked ball on its way, toward -1 (their end) or +1 (ours). */
+function launch(toward: number) {
+  const ang = (Math.random() - 0.5) * 1.0
+  ball.vx = Math.sin(ang) * BALL_START_SPEED
+  ball.vz = toward * Math.abs(Math.cos(ang) * BALL_START_SPEED)
+}
+
+function serve(toward: number) {
+  placeForServe()
+  launch(toward)
+}
 serve(Math.random() < 0.5 ? 1 : -1)
+
+// --- Goal sequence --- On a goal the sim freezes and we replay the run-up in
+// slow motion, the camera dropping out of the play view to chase the ball and
+// follow it through the mouth. Then a hard cut back to the wide opening shot,
+// the same zoom-down as the intro, a beat, and the next serve. The match clock
+// is paused for all of it, so replays never cost you time.
+const REPLAY_LEAD = 2.0 // seconds of run-up kept on tape
+const REPLAY_RATE = 0.5 // playback speed
+const REPLAY_BLEND = 0.35 // fraction of the replay spent easing off the play camera
+const CHASE_UP_FAR = 5.5 // camera height when the chase begins…
+const CHASE_UP_NEAR = 2.0 // …and as it goes through the mouth
+const CHASE_BACK_FAR = 12 // how far behind the ball the chase starts…
+const CHASE_BACK_NEAR = 2.5 // …and ends, so we cross the line just after it
+const CHASE_SQUARE = 0.7 // how far the camera slides to centre on the goal
+const RESET_HOLD = 0.5 // beat at the play view before the serve
+const REPLAY_HZ = 60 // tape sampling rate
+
+interface Snapshot {
+  bx: number
+  by: number
+  bz: number
+  px: number
+  pz: number
+  ax: number
+  az: number
+}
+const tape: Snapshot[] = []
+const TAPE_MAX = Math.ceil(REPLAY_LEAD * REPLAY_HZ)
+let tapeAcc = 0
+
+type Phase = 'play' | 'replay' | 'reset' | 'hold'
+let phase: Phase = 'play'
+let phaseT = 0
+let replayGoalZ = 0
+let pendingServe = 1
+
+function recordFrame() {
+  if (tape.length >= TAPE_MAX) tape.shift()
+  tape.push({
+    bx: ball.x,
+    by: ballY,
+    bz: ball.z,
+    px: player.x,
+    pz: player.z,
+    ax: ai.x,
+    az: ai.z,
+  })
+}
+
+function startReplay(goal: 'near' | 'far') {
+  recordFrame() // catch the ball on the wrong side of the line
+  replayGoalZ = goal === 'near' ? HALF_L : -HALF_L
+  pendingServe = goal === 'near' ? -1 : 1
+  phase = 'replay'
+  phaseT = 0
+}
+
+/** Scrub the tape to `t` (0..1) and drop the world back into that pose. */
+function applyTape(t: number) {
+  if (tape.length === 0) return
+  const f = clamp(t, 0, 1) * (tape.length - 1)
+  const i0 = Math.floor(f)
+  const i1 = Math.min(i0 + 1, tape.length - 1)
+  const k = f - i0
+  const a = tape[i0]
+  const b = tape[i1]
+  ball.x = a.bx + (b.bx - a.bx) * k
+  ballY = a.by + (b.by - a.by) * k
+  ball.z = a.bz + (b.bz - a.bz) * k
+  player.x = a.px + (b.px - a.px) * k
+  player.z = a.pz + (b.pz - a.pz) * k
+  ai.x = a.ax + (b.ax - a.ax) * k
+  ai.z = a.az + (b.az - a.az) * k
+}
+
+const smoothstep = (t: number) => t * t * (3 - 2 * t)
+const _chase = new Vector3()
+const _look = new Vector3()
+
+function replayCamera(t: number) {
+  // Chase along the goal's axis rather than the ball's heading — the ball bounces
+  // during the run-up and tracking that would swing the camera all over the table.
+  const gs = Math.sign(replayGoalZ)
+  const close = smoothstep(clamp((t - REPLAY_BLEND) / (1 - REPLAY_BLEND), 0, 1))
+  const up = CHASE_UP_FAR + (CHASE_UP_NEAR - CHASE_UP_FAR) * close
+  const back = CHASE_BACK_FAR + (CHASE_BACK_NEAR - CHASE_BACK_FAR) * close
+  _chase.set(ball.x * (1 - close * CHASE_SQUARE), up, ball.z - gs * back)
+  _look.set(ball.x, ballY, ball.z)
+
+  // Ease out of the play view rather than cutting to the chase.
+  const blend = smoothstep(clamp(t / REPLAY_BLEND, 0, 1))
+  rallyDir(_dir)
+  _fitPos.copy(CAM_TARGET).addScaledVector(_dir, fitScale(_dir))
+  camera.position.lerpVectors(_fitPos, _chase, blend)
+  _look.lerp(CAM_TARGET, 1 - blend)
+  camera.lookAt(_look)
+}
+
+function updateSequence(frameDt: number) {
+  phaseT += frameDt
+  if (phase === 'replay') {
+    const dur = REPLAY_LEAD / REPLAY_RATE
+    const t = clamp(phaseT / dur, 0, 1)
+    applyTape(t)
+    replayCamera(t)
+    if (t >= 1) {
+      // Cut back to the wide opening shot with the ball waiting at centre.
+      placeForServe()
+      tape.length = 0
+      phase = 'reset'
+      phaseT = 0
+    }
+  } else if (phase === 'reset') {
+    if (updateIntro(phaseT)) {
+      phase = 'hold'
+      phaseT = 0
+    }
+  } else {
+    updateCamera(frameDt)
+    if (phaseT >= RESET_HOLD) {
+      launch(pendingServe)
+      phase = 'play'
+      phaseT = 0
+    }
+  }
+}
 
 // --- Fixed-timestep loop ---
 const HZ = 120
@@ -639,6 +778,14 @@ function update(dt: number) {
   if (rampCooldown > 0) rampCooldown -= dt
   tryPickupGun()
 
+  // Keep the rolling tape for the goal replay. Above the ramp return, so a
+  // murderball goal replays the ride itself rather than the run-up before it.
+  tapeAcc += dt
+  if (tapeAcc >= 1 / REPLAY_HZ) {
+    tapeAcc = 0
+    recordFrame()
+  }
+
   if (onRamp) {
     updateRamp(dt) // ball is on the rail; 2D physics suspended
     return
@@ -670,14 +817,14 @@ function update(dt: number) {
     scoreAI += 1 + targets.countFor(1) // their claimed targets add to their goal
     clearTargets()
     sfx.goalThem()
-    serve(-1)
+    startReplay('near')
     return
   }
   if (res.goal === 'far') {
     scorePlayer += 1 + targets.countFor(0) // our claimed targets add to our goal
     clearTargets()
     sfx.goalUs()
-    serve(1)
+    startReplay('far')
     return
   }
 
@@ -939,6 +1086,10 @@ function resetMatch() {
   introElapsed = 0
   acc = 0
   last = performance.now() / 1000
+  phase = 'play'
+  phaseT = 0
+  tape.length = 0
+  tapeAcc = 0
   serve(Math.random() < 0.5 ? 1 : -1)
 }
 
@@ -963,20 +1114,25 @@ function frame() {
         openStart(endText, endResult)
       }
     }
-    if (!over) {
-      timeLeft -= frameDt
-      if (timeLeft <= 0) {
-        timeLeft = 0
-        over = true
-        endMatch()
+    if (phase !== 'play') {
+      // Goal replay / reset / hold. The match clock stays frozen throughout.
+      updateSequence(frameDt)
+    } else {
+      if (!over) {
+        timeLeft -= frameDt
+        if (timeLeft <= 0) {
+          timeLeft = 0
+          over = true
+          endMatch()
+        }
+        acc += frameDt
+        while (acc >= DT) {
+          update(DT)
+          acc -= DT
+        }
       }
-      acc += frameDt
-      while (acc >= DT) {
-        update(DT)
-        acc -= DT
-      }
+      updateCamera(frameDt)
     }
-    updateCamera(frameDt)
   }
 
   updateShards(frameDt)

@@ -49,43 +49,57 @@ it** (it made the round ball blocky). Don't reintroduce it without asking.
 
 | File | Responsibility |
 |---|---|
-| `main.ts` | Entry: scene, renderer, fixed **120 Hz** loop, camera, ball+paddles, touch-drag input (raycast to table plane), ramp traversal, tug-of-war/possession, guns, HUD. |
-| `game/const.ts` | All dimensions and tunable gameplay constants. |
-| `game/physics.ts` | 2D ball physics. `stepBall()` → `{goal, hitIndex}`; walls leave goal mouths open; paddle = elastic circle-circle that transfers paddle velocity. |
-| `game/table.ts` | Floor plane + side/end walls (tall, `WALL_H=3.5`). |
-| `game/floorTexture.ts` | Procedural pixel-art floor: metal-blue, rivets, **embossed** center circle + line, lavender star, amber goal mouths. Drawn at 3× res. |
-| `game/textures.ts` | Metal matcap, steel wall texture, ball shadow texture. (`makePaddleTexture` is currently unused.) |
-| `game/ramp.ts` | Murderball rail: an **over-the-top arch** from a hole in the **right** wall (ours) to a hole in the **left** wall (theirs), apex over centre. Single tube, ball rides on top. `ride(u)` runs right mouth (u=0) → left mouth (u=1). Point-symmetric; smooth by construction. Wall-mouth portals coloured per owner. |
-| `game/stars.ts` | Claim **targets** (`buildTargets`): 4 sockets, two flanking each wall mouth. Black until hit; the last hitter lights one their colour (blue=us/pink=them), stealable. `countFor(owner)` = that side's multiplier on the next goal; `reset()` after a goal. |
-| `game/guns.ts` | Gun pickup token (pixel icon) + laser-shot mesh factories. |
+| `main.ts` | Entry: scene, renderer, fixed **120 Hz** loop, camera, ball+paddles, touch-drag input (raycast to table plane), ramp traversal, possession, power-ups, AI, goal-replay sequence, HUD/overlays. |
+| `game/const.ts` | All dimensions and tunable gameplay constants, the `SLOTS` geometry (see below), and the `AI_PROFILES` difficulty table. |
+| `game/physics.ts` | 2D ball physics. `stepBall(ball, dt, paddles, sealed)` → `{goal, hitIndex, wall, phasedIndex}`; walls leave goal mouths open unless `sealed`; paddle = elastic circle-circle that transfers paddle velocity; guard blades are capsule colliders. |
+| `game/table.ts` | Floor plane + side walls (two runs each, chamfered around the slot, plus the guard blade) + end walls. `WALL_H=3.5`. |
+| `game/floorTexture.ts` | Procedural pixel-art floor: metal-blue, rivets, **embossed** center circle + line, lavender star, amber goal mouths. Drawn at 3× res. **Owns the shared plate palette + rivet grid** (`PLATE_*`, `RIVET_PX`, `rivet()`) that the walls reuse. |
+| `game/textures.ts` | Metal matcap, steel wall panel (`makeSteelTexture(lenUnits, offsetUnits)` — exact-fit, no tiling, rivets phase-locked to world position), ball shadow texture. (`makePaddleTexture` is currently unused.) |
+| `game/ramp.ts` | Murderball rail: corkscrew up outside the **right** wall → **over-the-top arch** → mirrored corkscrew down into the **left** wall. `ride(u)` runs right mouth (u=0) → left mouth (u=1). Point-symmetric; smooth by construction. Slot portals coloured per owner, plus the projected **rail shadow**. |
+| `game/stars.ts` | Claim **targets** (`buildTargets`): 4 sockets, two evenly spaced either side of each wall slot. Black until hit; the last hitter lights one their colour (blue=us/pink=them), stealable. `countFor(owner)` = that side's multiplier on the next goal; `reset()` after a goal. |
+| `game/guns.ts` | Power-up token (pixel icon per effect) + bolt mesh factories; `Power` = `freeze \| shrink \| slow \| shield`. |
 
 ## What works now
 
 - Air-hockey rally vs a beatable AI; **timed match** (120 s) with `MATCH OVER`.
+- **Start overlay** with an Easy/Normal/Hard picker (see `AI_PROFILES`); a
+  **restart** button beside mute reopens it. Match over → banner for 2.5 s →
+  overlay again with the result and PLAY AGAIN.
 - Direct **touch-drag** paddle, confined to our half; imparts velocity to ball.
+  Each paddle wears its team band (blue = us, pink = them).
 - **Claim targets**: last hitter lights the target it presses against; your lit
-  count is your goal multiplier, then all reset on any goal. Stealable.
-- **Murderball ramp**: enter your wall mouth (must be moving away from your own
-  end); ride up-over-down; exit boosted and **just off the opponent goal** (needs
-  a bounce back before you can score). Entering **arms your murderball** (by mouth
+  count is your goal multiplier (up to ×5), then all reset on any goal. Stealable.
+- **Murderball ramp**: enter your wall slot (see the slot geometry below); ride
+  up-over-down; exit boosted at the far slot and **off the opponent goal** (needs
+  a bounce back before you can score). Entering **arms your murderball** (by slot
   ownership, not possession) — ball glows your colour, phases through and
   **shatters** the opponent paddle for ~8 s or until a goal.
-- **Gun**: token spawns in our half; touch it with the paddle to grab it (token
-  vanishes at once) and auto-fire a homing bolt that freezes the AI 3 s.
+- **Power-ups**: one token at a time across the centre line, badged with its
+  effect, grabbable by **either** paddle. `freeze` / `shrink` / `slow` fly at the
+  opponent as a homing bolt and only land if it connects; `shield` seals your own
+  goal at once. All 6 s; a new debuff replaces the running one. **A murderball
+  goes through a shield.**
+- **AI symmetry**: Normal+ races for tokens when the ball is heading away; Hard
+  also lines up behind the ball to feed its own left slot and charge murderball.
+  Difficulty also sets top speed and aim error.
+- **Overlays**: live multiplier + murderball tags under the score; a big
+  translucent neon punch-in at centre whenever either changes.
+- **Goal replay**: 2 s of tape played back at 0.5×, camera dropping out of the
+  play view to chase the ball through the mouth, then a cut to the wide shot, the
+  intro zoom back down, a 0.5 s beat, and the serve. **Match clock paused
+  throughout.**
 - Opening **corners-fit zoom** (1 s) into a viewport that keeps all four table
-  corners in view; gentle rally-lower; corner anti-trap. Altitude-aware shadows.
+  corners in view; gentle rally-lower; corner anti-trap. Altitude-aware shadows,
+  including a **projected rail shadow** that fades at the table edge.
 
 ## Not done yet (rough build order)
 
-1. **AI symmetry**: the AI never grabs guns or feeds its own (left) ramp mouth to
-   charge murderball. Guns spawn only in our half. Murderball is reachable by both
-   sides mechanically but the AI won't set it up.
-2. **On-device framing check**: the ramp arch rises above the walls and bulges
+1. **On-device framing check**: the ramp arch rises above the walls and bulges
    past them, so its top can clip the screen edge at max zoom (the fit tracks only
    the four floor corners). Decide whether to fold the arch into the fit.
-3. **Presentation/PWA**: amber pixel-font scoreboard panel (HUD is CSS
-   monospace now), SFX, haptics, offline service worker + manifest/install,
-   portrait lock, wake lock.
+2. **Presentation/PWA**: amber pixel-font scoreboard panel (HUD is CSS
+   monospace now), SFX for the new power-ups, haptics, offline service worker +
+   manifest/install, portrait lock, wake lock.
 
 ## Working style & gotchas
 
@@ -107,3 +121,5 @@ it** (it made the round ball blocky). Don't reintroduce it without asking.
   portals, targets all share them).
 - Paddle identity is by **position** (bottom = us) not loud color — palette is
   muted metal blue-grey to match the aesthetic.
+
+
