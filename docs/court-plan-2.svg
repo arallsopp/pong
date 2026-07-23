@@ -1,0 +1,97 @@
+<svg width="870" height="892" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, Menlo, monospace">
+ <defs>
+  <marker orient="auto" refY="4" refX="4" markerHeight="9" markerWidth="9" id="ab">
+   <path id="svg_1" fill="#2ad4ff" d="m0,0l8,4l-8,4l0,-8z"/>
+  </marker>
+  <marker orient="auto" refY="4" refX="4" markerHeight="9" markerWidth="9" id="ap">
+   <path id="svg_2" fill="#ff3ecb" d="m0,0l8,4l-8,4l0,-8z"/>
+  </marker>
+ </defs>
+ <g>
+  <title>Layer 1</title>
+  <rect stroke="null" id="svg_3" fill="#141b25" height="892" width="870" y="-10.99988" x="-15.99982"/>
+  <circle stroke="#fb2bff" id="svg_89" stroke-dasharray="6 5" stroke-width="3" fill="none" r="40.20002" cy="426.50922" cx="196.91021"/>
+  <line id="svg_4" stroke="rgba(255,255,255,0.05)" y2="820" x2="83" y1="72" x1="83"/>
+  <line id="svg_5" stroke="rgba(255,255,255,0.05)" y2="820" x2="127" y1="72" x1="127"/>
+  <line id="svg_6" stroke="rgba(255,255,255,0.05)" y2="820" x2="171" y1="72" x1="171"/>
+  <line id="svg_7" stroke="rgba(255,255,255,0.05)" y2="820" x2="215" y1="72" x1="215"/>
+  <line id="svg_8" stroke="rgba(255,255,255,0.05)" y2="820" x2="259" y1="72" x1="259"/>
+  <line id="svg_9" stroke="rgba(255,255,255,0.05)" y2="820" x2="303" y1="72" x1="303"/>
+  <line id="svg_10" stroke="rgba(255,255,255,0.05)" y2="820" x2="347" y1="72" x1="347"/>
+  <line id="svg_11" stroke="rgba(255,255,255,0.05)" y2="820" x2="391" y1="72" x1="391"/>
+  <line id="svg_12" stroke="rgba(255,255,255,0.05)" y2="820" x2="435" y1="72" x1="435"/>
+  <line id="svg_13" stroke="rgba(255,255,255,0.05)" y2="820" x2="479" y1="72" x1="479"/>
+  <line id="svg_14" stroke="rgba(255,255,255,0.05)" y2="820" x2="523" y1="72" x1="523"/>
+  <line id="svg_15" stroke="rgba(255,255,255,0.05)" y2="820" x2="567" y1="72" x1="567"/>
+  <line id="svg_16" stroke="rgba(255,255,255,0.05)" y2="820" x2="611" y1="72" x1="611"/>
+  <line id="svg_17" stroke="rgba(255,255,255,0.05)" y2="820" x2="655" y1="72" x1="655"/>
+  <line id="svg_18" stroke="rgba(255,255,255,0.05)" y2="820" x2="699" y1="72" x1="699"/>
+  <line id="svg_19" stroke="rgba(255,255,255,0.05)" y2="820" x2="743" y1="72" x1="743"/>
+  <line id="svg_20" stroke="rgba(255,255,255,0.05)" y2="820" x2="787" y1="72" x1="787"/>
+  <line id="svg_21" stroke="rgba(255,255,255,0.05)" y2="94" x2="798" y1="94" x1="72"/>
+  <line id="svg_22" stroke="rgba(255,255,255,0.05)" y2="138" x2="798" y1="138" x1="72"/>
+  <line id="svg_23" stroke="rgba(255,255,255,0.05)" y2="182" x2="798" y1="182" x1="72"/>
+  <line id="svg_24" stroke="rgba(255,255,255,0.05)" y2="226" x2="798" y1="226" x1="72"/>
+  <line id="svg_25" stroke="rgba(255,255,255,0.05)" y2="270" x2="798" y1="270" x1="72"/>
+  <line id="svg_26" stroke="rgba(255,255,255,0.05)" y2="314" x2="798" y1="314" x1="72"/>
+  <line id="svg_27" stroke="rgba(255,255,255,0.05)" y2="358" x2="798" y1="358" x1="72"/>
+  <line id="svg_28" stroke="rgba(255,255,255,0.05)" y2="402" x2="798" y1="402" x1="72"/>
+  <line id="svg_29" stroke="rgba(255,255,255,0.05)" y2="446" x2="798" y1="446" x1="72"/>
+  <line id="svg_30" stroke="rgba(255,255,255,0.05)" y2="490" x2="798" y1="490" x1="72"/>
+  <line id="svg_31" stroke="rgba(255,255,255,0.05)" y2="534" x2="798" y1="534" x1="72"/>
+  <line id="svg_32" stroke="rgba(255,255,255,0.05)" y2="578" x2="798" y1="578" x1="72"/>
+  <line id="svg_33" stroke="rgba(255,255,255,0.05)" y2="622" x2="798" y1="622" x1="72"/>
+  <line id="svg_34" stroke="rgba(255,255,255,0.05)" y2="666" x2="798" y1="666" x1="72"/>
+  <line id="svg_35" stroke="rgba(255,255,255,0.05)" y2="710" x2="798" y1="710" x1="72"/>
+  <line id="svg_36" stroke="rgba(255,255,255,0.05)" y2="754" x2="798" y1="754" x1="72"/>
+  <line id="svg_37" stroke="rgba(255,255,255,0.05)" y2="798" x2="798" y1="798" x1="72"/>
+  <rect id="svg_38" fill="#243449" height="704" width="440" y="94.99999" x="215"/>
+  <line id="svg_39" stroke-width="2" stroke="rgba(255,255,255,0.15)" y2="446" x2="655" y1="446" x1="215"/>
+  <circle id="svg_40" stroke-width="2" stroke="rgba(200,180,255,0.35)" fill="none" r="66" cy="446" cx="435"/>
+  <circle id="svg_41" fill="#e9f1fb" r="12.1" cy="446" cx="435"/>
+  <rect id="svg_43" fill="#46566b" height="704" width="13.2" y="94" x="648.4"/>
+  <rect id="svg_44" fill="#46566b" height="13.2" width="143" y="87.4" x="215"/>
+  <rect id="svg_45" fill="#46566b" height="13.2" width="143" y="87.4" x="512"/>
+  <line id="svg_46" stroke-width="4" stroke="#ffcc33" y2="94" x2="512" y1="94" x1="358"/>
+  <rect id="svg_47" fill="#46566b" height="13.2" width="143" y="791.4" x="215"/>
+  <rect id="svg_48" fill="#46566b" height="13.2" width="143" y="791.4" x="512"/>
+  <line id="svg_49" stroke-width="4" stroke="#ffcc33" y2="798" x2="512" y1="798" x1="358"/>
+  <line stroke="#8ea4bd" id="svg_50" stroke-dasharray="7 6" stroke-width="3" y2="389.99915" x2="214" y1="493.00095" x1="646.00011"/>
+  <circle id="svg_51" stroke-dasharray="6 5" stroke-width="3" stroke="#2ad4ff" fill="none" r="57.2" cy="578" cx="712.2"/>
+  <rect id="svg_53" fill="#2ad4ff" height="30.8" width="17.6" y="593.4" x="646.2"/>
+  <rect transform="rotate(-47.9903 215.247 453.726)" stroke="null" id="svg_54" fill="#ff3ecb" height="16.67712" width="17.6" y="445.38735" x="206.44688"/>
+  <path id="svg_55" marker-end="url(#ab)" stroke-width="2.5" stroke="#2ad4ff" d="m619.8,613.2l0,-61.6"/>
+  <path id="svg_56" marker-end="url(#ap)" stroke-width="2.5" stroke="#ff3ecb" d="m250.2,278.8l0,61.6"/>
+  <circle id="svg_57" stroke-width="2.5" stroke="#9fb4cc" fill="#0a0d12" r="18" cy="507.6" cx="653.7"/>
+  <circle id="svg_58" stroke-width="2.5" stroke="#9fb4cc" fill="#0a0d12" r="18" cy="648.4" cx="653.7"/>
+  <circle id="svg_59" stroke-width="2.5" stroke="#9fb4cc" fill="#0a0d12" r="18" cy="344.23801" cx="215.13784"/>
+  <circle id="svg_60" stroke-width="2.5" stroke="#9fb4cc" fill="#0a0d12" r="18" cy="546.21978" cx="217.38107"/>
+  <circle id="svg_61" stroke="#dfe" fill="#9fb4cc" r="30.8" cy="657.2" cx="435"/>
+  <circle id="svg_62" stroke="#bcd" fill="#7d8ea3" r="30.8" cy="234.8" cx="435"/>
+  <text id="svg_63" text-anchor="middle" font-size="13" fill="#9fb4cc" y="820.022" x="215">x=-10</text>
+  <text id="svg_64" text-anchor="middle" font-size="13" fill="#9fb4cc" y="820.022" x="325">x=-5</text>
+  <text id="svg_65" text-anchor="middle" font-size="13" fill="#9fb4cc" y="820.022" x="435">x=0</text>
+  <text id="svg_66" text-anchor="middle" font-size="13" fill="#9fb4cc" y="820.022" x="545">x=5</text>
+  <text id="svg_67" text-anchor="middle" font-size="13" fill="#9fb4cc" y="820.022" x="655">x=10</text>
+  <text id="svg_68" text-anchor="end" font-size="13" fill="#9fb4cc" y="98" x="64">z=-16</text>
+  <text id="svg_69" text-anchor="end" font-size="13" fill="#9fb4cc" y="274" x="64">z=-8</text>
+  <text id="svg_70" text-anchor="end" font-size="13" fill="#9fb4cc" y="450" x="64">z=0</text>
+  <text id="svg_71" text-anchor="end" font-size="13" fill="#9fb4cc" y="626" x="64">z=8</text>
+  <text id="svg_72" text-anchor="end" font-size="13" fill="#9fb4cc" y="802" x="64">z=16</text>
+  <text id="svg_73" font-weight="700" text-anchor="middle" font-size="16" fill="#cbd6e4" y="83" x="435">THEIR END  (−z, far)</text>
+  <text id="svg_74" font-weight="700" text-anchor="middle" font-size="16" fill="#2ad4ff" y="817.8" x="435">MY END  (+z, near, blue)</text>
+  <text id="svg_75" font-weight="700" text-anchor="middle" font-size="12" fill="#ffcc33" y="111.6" x="435">their goal</text>
+  <text id="svg_76" font-weight="700" text-anchor="middle" font-size="12" fill="#ffcc33" y="782.6" x="435">my goal</text>
+  <text id="svg_77" font-weight="700" text-anchor="middle" font-size="13" fill="#2ad4ff" y="578" x="734.2">MY loop</text>
+  <text id="svg_78" font-weight="700" text-anchor="middle" font-size="13" fill="#ff3ecb" y="314" x="135.8">THEIR loop</text>
+  <text id="svg_79" font-weight="700" text-anchor="middle" font-size="12" fill="#aebfd4" y="474.6" x="435">overhead cross →</text>
+  <text id="svg_80" font-weight="700" text-anchor="end" font-size="11" fill="#9fb4cc" y="507.6" x="615.4">target</text>
+  <text id="svg_81" font-weight="700" text-anchor="end" font-size="11" fill="#9fb4cc" y="648.4" x="615.4">target</text>
+  <text id="svg_82" font-weight="700" font-size="19" fill="#e6edf5" y="34" x="64">MURDERBALL — court plan (top-down, to scale · 20 × 32 units)</text>
+  <text id="svg_83" font-size="12" fill="#8ea4bd" y="54" x="64">Dashed = ramp is up in the air (loops climb 0.55→6; overhead apex ≈ 8 — not shown in a plan). Arrows = required entry direction.</text>
+  <path fill="none" stroke="#ff00ff" stroke-width="8" opacity="NaN" d="m547.99844,247.99884l-193.9989,223.00041" id="svg_86"/>
+  <path stroke="null" fill="#4c6782" opacity="NaN" d="m210,468.2603l23.11047,-26.45349l1.88954,1.74419l-12.35465,14.53488l0,340.00994l-11.95946,-0.14535l-0.68589,-329.69017z" id="svg_85"/>
+  <path id="svg_88" d="m202.50483,462.50684" opacity="NaN" fill="#141b25"/>
+  <path stroke="null" fill="#4c6782" opacity="NaN" d="m221.67415,90.45095l1.11655,342.46007l-12.7907,13.98299l-0.01882,-359.605l11.69298,3.16194z" id="svg_84"/>
+ </g>
+</svg>

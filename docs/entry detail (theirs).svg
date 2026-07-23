@@ -1,0 +1,16 @@
+<svg width="870" height="892" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, Menlo, monospace">
+ <g id="Layer_1">
+  <title>Layer 1</title>
+  <path id="svg_10" d="m167.99999,-4.92306l703.07697,0l0,896.9231l-703.07697,0l0,-896.9231z" opacity="undefined" stroke="null" fill="#293c4f"/>
+  <path id="svg_2" d="m259.61538,-7.57643l-3.61538,367.37349l-88,96.20294l4.61538,-464.53846l87,0.96203z" opacity="NaN" fill="#4c6782"/>
+  <path id="svg_3" d="m167.99999,603l159,-182l13,12l-85,100l0,375.69231l-86,-1l-1,-304.69231z" opacity="NaN" fill="#4c6782"/>
+  <path id="svg_4" d="m403,267" opacity="NaN" stroke="#000" fill="#fff"/>
+  <path id="svg_5" d="m385,265" opacity="NaN" stroke="#000" fill="#fff"/>
+  <rect id="svg_19" height="973.99829" width="217.99962" y="-53.00071" x="-46.00068" stroke="null" fill="#101a23"/>
+  <path stroke-dasharray="2,2" stroke-width="10" stroke="#ff00ff" id="svg_7" d="m164,579.15385c-41,37.30832 -134,125.79717 -206,55.96248" opacity="NaN" fill="none"/>
+  <path stroke-dasharray="2,2" stroke-width="10" stroke="#ff00ff" id="svg_8" d="m163,480c-41,37.30832 -133,136.79717 -189,55.96248" opacity="NaN" fill="none"/>
+  <path stroke="#ee00ff" id="svg_9" d="m-43,554.96248" opacity="NaN" fill="none"/>
+  <path id="svg_17" d="m453.99844,202.99884l-193.9989,223.00041" opacity="NaN" stroke-width="8" stroke="#ff00ff" fill="none"/>
+  <path id="svg_18" d="m246.566,440.99844l-0.56645,-34.99917l33.99994,34.10199l-33.43349,0.89718z" opacity="NaN" stroke-dasharray="2,2" stroke-width="10" fill="#ff00ff"/>
+ </g>
+</svg>
