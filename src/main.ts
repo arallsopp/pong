@@ -1,8 +1,10 @@
 import {
+  CircleGeometry,
   CylinderGeometry,
   Color,
   Mesh,
   MeshBasicMaterial,
+  MeshMatcapMaterial,
   PerspectiveCamera,
   Plane,
   Raycaster,
@@ -13,6 +15,13 @@ import {
   WebGLRenderer,
 } from 'three'
 import {
+  AI_PAL,
+  PLAYER_PAL,
+  makeMetalMatcap,
+  makePaddleTexture,
+  makeShadowTexture,
+} from './game/textures'
+import {
   AI_MAX_SPEED,
   BALL_R,
   BALL_START_SPEED,
@@ -20,10 +29,15 @@ import {
   HALF_W,
   MATCH_SECONDS,
   PAD_R,
+  RAMP_CAPTURE_R,
+  RAMP_COOLDOWN,
+  RAMP_RELEASE_BOOST,
+  RAMP_SPEED,
   PLAYER_MAX_SPEED,
   clamp,
 } from './game/const'
 import { buildTable } from './game/table'
+import { buildRamp } from './game/ramp'
 import { stepBall, type Body } from './game/physics'
 
 const app = document.getElementById('app')!
@@ -31,38 +45,58 @@ const scoreEl = document.getElementById('score')!
 const bannerEl = document.getElementById('banner')!
 const debugEl = document.getElementById('debug')!
 
-// --- Renderer with a low-res backing store (nearest-upscaled by CSS) ---
-const PIXEL_SCALE = 4
-const renderer = new WebGLRenderer({ antialias: false, powerPreference: 'high-performance' })
-renderer.setPixelRatio(1)
+// --- Renderer at full display resolution; the 16-bit look comes from the
+// nearest-filtered bitmap textures on the geometry, not from downsampling. ---
+const renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 app.appendChild(renderer.domElement)
 
 const scene = new Scene()
 scene.background = new Color(0x1b2430)
 
 scene.add(buildTable())
+const ramp = buildRamp()
+scene.add(ramp.group)
 
-// Fixed tilted top-down camera, framing the portrait table.
-const camera = new PerspectiveCamera(50, 1, 0.1, 200)
-camera.position.set(0, 34, HALF_L + 20)
-camera.lookAt(0, 0, 1)
+// Fixed, steep top-down camera raised high so the portrait table fills the
+// screen. Nudge CAM_Y (height) and CAM_Z (tilt/back-off) to reframe.
+const CAM_Y = 52
+const CAM_Z = 15
+const camera = new PerspectiveCamera(44, 1, 0.1, 200)
+camera.position.set(0, CAM_Y, CAM_Z)
+camera.lookAt(0, 0, 0)
 
-// --- Ball ---
+// --- Ball: round, high-res, chrome (matcap so it needs no lights) ---
 const ball: Body = { x: 0, z: 0, vx: 0, vz: 0, r: BALL_R }
+let ballY = BALL_R // altitude, only leaves BALL_R while on the ramp
 const ballMesh = new Mesh(
-  new SphereGeometry(BALL_R, 20, 14),
-  new MeshBasicMaterial({ color: 0xffe066 }),
+  new SphereGeometry(BALL_R, 48, 32),
+  new MeshMatcapMaterial({ matcap: makeMetalMatcap() }),
 )
 scene.add(ballMesh)
 
-// --- Paddles (flat discs) ---
-function makePaddle(color: number): Mesh {
-  return new Mesh(new CylinderGeometry(PAD_R, PAD_R, 0.5, 24), new MeshBasicMaterial({ color }))
+// Dynamic ball shadow — projects straight down, growing and fading with height.
+const ballShadow = new Mesh(
+  new CircleGeometry(BALL_R * 1.3, 24),
+  new MeshBasicMaterial({ map: makeShadowTexture(), transparent: true, depthWrite: false }),
+)
+ballShadow.rotation.x = -Math.PI / 2
+scene.add(ballShadow)
+
+// --- Paddles (flat discs, textured metal) ---
+function makePaddle(pal: typeof PLAYER_PAL): Mesh {
+  const tex = makePaddleTexture(pal)
+  const mats = [
+    new MeshBasicMaterial({ color: pal.dark }), // side
+    new MeshBasicMaterial({ map: tex }), // top cap
+    new MeshBasicMaterial({ map: tex }), // bottom cap
+  ]
+  return new Mesh(new CylinderGeometry(PAD_R, PAD_R, 0.5, 48), mats)
 }
 const player: Body = { x: 0, z: HALF_L * 0.6, vx: 0, vz: 0, r: PAD_R }
 const ai: Body = { x: 0, z: -HALF_L * 0.6, vx: 0, vz: 0, r: PAD_R }
-const playerMesh = makePaddle(0x4aa3ff)
-const aiMesh = makePaddle(0xff7a3c)
+const playerMesh = makePaddle(PLAYER_PAL)
+const aiMesh = makePaddle(AI_PAL)
 scene.add(playerMesh, aiMesh)
 
 // --- Direct touch-drag: raycast pointer to the table plane ---
@@ -98,6 +132,64 @@ let scorePlayer = 0
 let scoreAI = 0
 let timeLeft = MATCH_SECONDS
 let over = false
+
+// --- Ramp state ---
+let onRamp = false
+let rampT = 0 // 0..1 along ramp.curve
+let rampDir = 1 // +1 travels t 0→1, -1 travels 1→0
+let rampCooldown = 0
+const rampLen = ramp.curve.getLength()
+const _cp = new Vector3()
+const _tan = new Vector3()
+
+function tryEnterRamp(): boolean {
+  if (onRamp || rampCooldown > 0) return false
+  const dxN = ball.x
+  const dzN = ball.z - ramp.entryZ
+  const dxF = ball.x
+  const dzF = ball.z + ramp.entryZ
+  const speed = Math.hypot(ball.vx, ball.vz)
+  if (speed < 6) return false
+  if (dxN * dxN + dzN * dzN < RAMP_CAPTURE_R * RAMP_CAPTURE_R) {
+    onRamp = true
+    rampT = 0
+    rampDir = 1
+    return true
+  }
+  if (dxF * dxF + dzF * dzF < RAMP_CAPTURE_R * RAMP_CAPTURE_R) {
+    onRamp = true
+    rampT = 1
+    rampDir = -1
+    return true
+  }
+  return false
+}
+
+function updateRamp(dt: number) {
+  rampT += rampDir * (RAMP_SPEED / rampLen) * dt
+  if (rampT <= 0 || rampT >= 1) {
+    // Release at the far mouth along the exit tangent (auto accelerator boost).
+    const exitT = rampDir > 0 ? 1 : 0
+    ramp.curve.getPoint(exitT, _cp)
+    ramp.curve.getTangent(exitT, _tan).multiplyScalar(rampDir)
+    const dir = new Vector2(_tan.x, _tan.z)
+    if (dir.lengthSq() < 1e-6) dir.set(0, rampDir > 0 ? -1 : 1)
+    dir.normalize()
+    const speed = BALL_START_SPEED * RAMP_RELEASE_BOOST
+    ball.x = _cp.x
+    ball.z = _cp.z
+    ball.vx = dir.x * speed
+    ball.vz = dir.y * speed
+    ballY = BALL_R
+    onRamp = false
+    rampCooldown = RAMP_COOLDOWN
+    return
+  }
+  ramp.curve.getPoint(rampT, _cp)
+  ball.x = _cp.x
+  ball.z = _cp.z
+  ballY = _cp.y
+}
 
 function serve(toward: number) {
   ball.x = 0
@@ -135,6 +227,13 @@ function updateAI(dt: number) {
 function update(dt: number) {
   moveBody(player, targetX, targetZ, PLAYER_MAX_SPEED, dt)
   updateAI(dt)
+  if (rampCooldown > 0) rampCooldown -= dt
+
+  if (onRamp) {
+    updateRamp(dt) // ball is on the rail; 2D physics suspended
+    return
+  }
+
   const goal = stepBall(ball, dt, [player, ai])
   if (goal === 'near') {
     scoreAI++
@@ -142,6 +241,8 @@ function update(dt: number) {
   } else if (goal === 'far') {
     scorePlayer++
     serve(1)
+  } else {
+    tryEnterRamp()
   }
 }
 
@@ -165,7 +266,13 @@ function frame() {
     }
   }
 
-  ballMesh.position.set(ball.x, BALL_R, ball.z)
+  ballMesh.position.set(ball.x, ballY, ball.z)
+  // Ball shadow: directly below, growing and fading with altitude.
+  const alt = ballY - BALL_R
+  ballShadow.position.set(ball.x, 0.05, ball.z)
+  const s = 1 + alt * 0.07
+  ballShadow.scale.set(s, s, s)
+  ;(ballShadow.material as MeshBasicMaterial).opacity = clamp(0.55 - alt * 0.03, 0.12, 0.55)
   playerMesh.position.set(player.x, 0.25, player.z)
   aiMesh.position.set(ai.x, 0.25, ai.z)
 
@@ -185,8 +292,7 @@ function pad(n: number) {
 function resize() {
   const w = window.innerWidth
   const h = window.innerHeight
-  // Low internal resolution → nearest-upscaled to the display for pixelation.
-  renderer.setSize(Math.ceil(w / PIXEL_SCALE), Math.ceil(h / PIXEL_SCALE), false)
+  renderer.setSize(w, h, false)
   camera.aspect = w / h
   camera.updateProjectionMatrix()
 }

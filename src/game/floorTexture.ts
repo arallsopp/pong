@@ -11,13 +11,15 @@ import { GOAL_HALF, HALF_W } from './const'
  * +y (down) → table +z (near/our end at the bottom).
  */
 export function makeFloorTexture(): CanvasTexture {
+  const S = 3 // supersample: draw the 256×410 layout onto a 3× backing store
   const W = 256
   const H = 410 // ≈ W * (HALF_L/HALF_W) so texels stay square on the table
   const c = document.createElement('canvas')
-  c.width = W
-  c.height = H
+  c.width = W * S
+  c.height = H * S
   const g = c.getContext('2d')!
   g.imageSmoothingEnabled = false
+  g.scale(S, S) // all drawing below stays in 256×410 coordinates, at 3× res
 
   // --- steel base with a faint vertical panel gradient ---
   const grad = g.createLinearGradient(0, 0, 0, H)
@@ -30,26 +32,16 @@ export function makeFloorTexture(): CanvasTexture {
   // --- lavender star (points toward the four corners + top) ---
   drawStar(g, W / 2, H / 2, W * 0.46, W * 0.19, 5, '#6e6b92', 0.6)
 
-  // --- center face-off circle + square ---
+  // --- embossed center line + face-off circle (engraved, like the rivets) ---
   const cx = W / 2
   const cy = H / 2
-  g.strokeStyle = '#8ea4bd'
-  g.lineWidth = 2
-  g.beginPath()
-  g.arc(cx, cy, 34, 0, Math.PI * 2)
-  g.stroke()
-  g.fillStyle = 'rgba(140,158,180,0.55)'
-  g.fillRect(cx - 22, cy - 22, 44, 44)
-  g.strokeStyle = '#a8bcd2'
-  g.strokeRect(cx - 22, cy - 22, 44, 44)
-
-  // --- green center line across the width ---
-  g.strokeStyle = '#3f8f4a'
-  g.lineWidth = 2
-  g.beginPath()
-  g.moveTo(0, cy)
-  g.lineTo(W, cy)
-  g.stroke()
+  // Center line: a light highlight above a dark groove.
+  g.fillStyle = '#9fb4cc'
+  g.fillRect(0, cy - 1, W, 1)
+  g.fillStyle = '#3a4658'
+  g.fillRect(0, cy, W, 1)
+  // Circle: same top-left highlight / bottom-right shadow bevel as a rivet.
+  embossCircle(g, cx, cy, 34)
 
   // --- rivet dot grid over the whole plate, denser on the center line ---
   const step = 22
@@ -71,6 +63,18 @@ export function makeFloorTexture(): CanvasTexture {
   tex.colorSpace = SRGBColorSpace
   tex.anisotropy = 1
   return tex
+}
+
+function embossCircle(g: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
+  g.lineWidth = 1
+  g.strokeStyle = '#9fb4cc' // highlight, offset up-left
+  g.beginPath()
+  g.arc(cx - 0.6, cy - 0.6, r, 0, Math.PI * 2)
+  g.stroke()
+  g.strokeStyle = '#3a4658' // shadow, offset down-right
+  g.beginPath()
+  g.arc(cx + 0.6, cy + 0.6, r, 0, Math.PI * 2)
+  g.stroke()
 }
 
 function rivet(g: CanvasRenderingContext2D, x: number, y: number) {

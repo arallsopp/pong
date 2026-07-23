@@ -7,8 +7,8 @@ import {
 } from 'three'
 import { GOAL_HALF, HALF_L, HALF_W, WALL_H, WALL_T } from './const'
 import { makeFloorTexture } from './floorTexture'
+import { makeSteelTexture } from './textures'
 
-const STEEL = 0x46566b
 const RAIL = 0x6b7f99
 
 /** Build the table: floor plane, side walls, and end walls flanking each goal. */
@@ -26,7 +26,8 @@ export function buildTable(): Group {
   floor.rotation.z = Math.PI
   group.add(floor)
 
-  const wallMat = new MeshBasicMaterial({ color: STEEL })
+  const wallMat = new MeshBasicMaterial({ map: makeSteelTexture(4) }) // tile ~4× down the length
+  const wallMatShort = new MeshBasicMaterial({ map: makeSteelTexture(1) })
   const railMat = new MeshBasicMaterial({ color: RAIL })
 
   // Side walls (full length).
@@ -44,7 +45,7 @@ export function buildTable(): Group {
   const postLen = HALF_W - GOAL_HALF
   for (const sz of [-1, 1]) {
     for (const sx of [-1, 1]) {
-      const post = new Mesh(new BoxGeometry(postLen, WALL_H, WALL_T), wallMat)
+      const post = new Mesh(new BoxGeometry(postLen, WALL_H, WALL_T), wallMatShort)
       post.position.set(
         sx * (GOAL_HALF + postLen / 2),
         WALL_H / 2,
