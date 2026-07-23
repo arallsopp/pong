@@ -6,8 +6,8 @@ export const GOAL_HALF = 3.5 // half-width of the goal mouth
 export const WALL_H = 3.5 // visual wall height (tall enough to carry the star track)
 export const WALL_T = 0.6 // visual wall thickness
 
-export const BALL_R = 0.8
-export const PAD_R = 1.6
+export const BALL_R = 0.55 // smaller ball → the court reads bigger
+export const PAD_R = 1.4
 
 export const BALL_START_SPEED = 16
 export const BALL_MAX_SPEED = 42
@@ -18,12 +18,25 @@ export const AI_MAX_SPEED = 26 // deliberately beatable
 
 export const MATCH_SECONDS = 120
 
-// Central murderball ramp.
-export const RAMP_ENTRY_Z = 6 // z of the two entry mouths (±)
-export const RAMP_CAPTURE_R = 1.4 // how close to an entry tip to get sucked in
+// Team colours (electric blue = us, electric pink = them). Shared by the
+// murderball glow, the wall-mouth portals, and the claim targets.
+export const COLOR_ME = 0x2ad4ff
+export const COLOR_THEM = 0xff3ecb
+
+// Murderball ramp: an over-the-top arch linking a hole in each side wall. Enter
+// the RIGHT mouth (ours) or the LEFT mouth (theirs); ride up-over-down; exit the
+// far mouth boosted with murderball armed for the side you entered.
+export const RAMP_HOLE_Z = 6 // z of the right mouth (ours); left mouth is at -RAMP_HOLE_Z
+export const RAMP_CAPTURE_R = 1.6 // how close to a mouth to get sucked in
 export const RAMP_SPEED = 26 // travel speed along the rail
-export const RAMP_RELEASE_BOOST = 1.25 // exit speed multiplier (accelerator, auto for now)
+export const RAMP_RELEASE_BOOST = 1.25 // exit speed multiplier
 export const RAMP_COOLDOWN = 1.5 // seconds before the ramp can grab the ball again
+export const RAMP_MISS = GOAL_HALF + 2 // exit aims this far off goal centre (needs a bounce to score)
+
+// Claim targets: two flanking each wall mouth (4 total). Claimed by the last
+// hitter's colour; the count in your colour is your multiplier on the next goal.
+export const TARGET_SEP = 3.2 // z-offset of each target either side of its mouth
+export const TARGET_HIT_Z = 1.6 // z tolerance for the ball claiming a target at the wall
 
 // Anti-trap: if the ball dwells in a corner (near a side AND an end wall) longer
 // than CORNER_ESCAPE_TIME, it's kicked back toward centre so it can't get pinned

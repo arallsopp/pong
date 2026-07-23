@@ -1,76 +1,98 @@
 import {
+  CircleGeometry,
   DoubleSide,
   Group,
   Mesh,
   MeshBasicMaterial,
-  Shape,
-  ShapeGeometry,
-  Vector3,
+  RingGeometry,
 } from 'three'
-import { HALF_W, WALL_H } from './const'
+import { COLOR_ME, COLOR_THEM, HALF_W, RAMP_HOLE_Z, TARGET_SEP, WALL_H } from './const'
 
-const LIT = 0xffcc33
-const DIM = 0x40506a
-const STAR_R = 0.85
-const STAR_Y = WALL_H * 0.55
-const STAR_Z = [-8, -4, 0, 4, 8] // index 0 = opponent side (−z), 4 = our side (+z)
+const RING = 0x9fb4cc // always-visible steel outline so empty targets read clearly
+const EMPTY = 0x0a0d12 // near-black fill when unclaimed
+const R_OUT = 0.82
+const R_IN = 0.58
+const TARGET_Y = WALL_H * 0.5
 
-export interface StarTrack {
+export interface Targets {
   group: Group
-  /** Light exactly one star for the current balance (−2..+2). */
-  setBalance(balance: number): void
-  /** World x/z of each star, for hit-testing against the ball at the wall. */
+  /** World x/z of each target (for hit-testing the ball against the wall). */
   positions: { x: number; z: number }[]
+  /** Who owns each target: 0 = us, 1 = them, null = unclaimed. */
+  claims: (0 | 1 | null)[]
+  /** Claim a target for a side, recolouring its fill. */
+  claim(i: number, owner: 0 | 1): void
+  /** How many targets a side currently holds (its next-goal multiplier). */
+  countFor(owner: 0 | 1): number
+  /** Reset every target to unclaimed (after a goal). */
+  reset(): void
 }
 
 /**
- * The five-star tug-of-war track on the left wall. A single lit star marks the
- * balance (−2..+2), starting centred. main moves it: the ball's last hitter
- * nudges it toward their side when it strikes a star.
+ * Four claim targets: two flanking each wall mouth. All start black with a
+ * visible steel ring; hitting one lights it your colour. It's not tug-of-war —
+ * you light up as many as you can, and your count is your multiplier when you
+ * next score, after which they all reset.
  */
-export function buildStars(): StarTrack {
+export function buildTargets(): Targets {
   const group = new Group()
-  const shape = starShape(STAR_R, STAR_R * 0.42)
-  const meshes: Mesh[] = []
-  const x = -HALF_W + 0.06
 
-  for (const z of STAR_Z) {
-    const m = new Mesh(
-      new ShapeGeometry(shape),
-      new MeshBasicMaterial({ color: DIM, side: DoubleSide }),
+  // Right wall (ours) flanks the +z mouth; left wall (theirs) flanks the −z mouth.
+  const layout: { x: number; z: number }[] = [
+    { x: HALF_W - 0.06, z: RAMP_HOLE_Z - TARGET_SEP },
+    { x: HALF_W - 0.06, z: RAMP_HOLE_Z + TARGET_SEP },
+    { x: -HALF_W + 0.06, z: -RAMP_HOLE_Z + TARGET_SEP },
+    { x: -HALF_W + 0.06, z: -RAMP_HOLE_Z - TARGET_SEP },
+  ]
+
+  const fills: Mesh[] = []
+  const claims: (0 | 1 | null)[] = layout.map(() => null)
+
+  for (const p of layout) {
+    const facing = p.x > 0 ? -Math.PI / 2 : Math.PI / 2 // face into the court
+
+    const ring = new Mesh(
+      new RingGeometry(R_IN, R_OUT, 24),
+      new MeshBasicMaterial({ color: RING, side: DoubleSide }),
     )
-    m.rotation.y = Math.PI / 2 // face +x (into the court, off the left wall)
-    m.position.set(x, STAR_Y, z)
-    group.add(m)
-    meshes.push(m)
+    ring.rotation.y = facing
+    ring.position.set(p.x, TARGET_Y, p.z)
+    group.add(ring)
+
+    const fill = new Mesh(
+      new CircleGeometry(R_IN, 24),
+      new MeshBasicMaterial({ color: EMPTY, side: DoubleSide }),
+    )
+    fill.rotation.y = facing
+    fill.position.set(p.x, TARGET_Y, p.z)
+    group.add(fill)
+    fills.push(fill)
   }
 
-  const setBalance = (balance: number) => {
-    const lit = Math.max(0, Math.min(4, balance + 2))
-    meshes.forEach((m, i) => {
-      ;(m.material as MeshBasicMaterial).color.set(i === lit ? LIT : DIM)
-      m.scale.setScalar(i === lit ? 1.25 : 1)
-    })
+  const paint = (i: number) => {
+    const c = claims[i] === 0 ? COLOR_ME : claims[i] === 1 ? COLOR_THEM : EMPTY
+    ;(fills[i].material as MeshBasicMaterial).color.set(c)
+    fills[i].scale.setScalar(claims[i] === null ? 1 : 1.12)
   }
-  setBalance(0)
 
   return {
     group,
-    setBalance,
-    positions: STAR_Z.map((z) => ({ x, z })),
+    positions: layout.map((p) => ({ x: p.x, z: p.z })),
+    claims,
+    claim(i, owner) {
+      claims[i] = owner
+      paint(i)
+    },
+    countFor(owner) {
+      let n = 0
+      for (const c of claims) if (c === owner) n++
+      return n
+    },
+    reset() {
+      for (let i = 0; i < claims.length; i++) {
+        claims[i] = null
+        paint(i)
+      }
+    },
   }
-}
-
-function starShape(outer: number, inner: number): Shape {
-  const s = new Shape()
-  const v = new Vector3()
-  for (let i = 0; i < 10; i++) {
-    const r = i % 2 === 0 ? outer : inner
-    const a = (i / 10) * Math.PI * 2 - Math.PI / 2
-    v.set(Math.cos(a) * r, Math.sin(a) * r, 0)
-    if (i === 0) s.moveTo(v.x, v.y)
-    else s.lineTo(v.x, v.y)
-  }
-  s.closePath()
-  return s
 }

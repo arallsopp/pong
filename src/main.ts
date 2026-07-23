@@ -21,6 +21,8 @@ import {
   AI_MAX_SPEED,
   BALL_R,
   BALL_START_SPEED,
+  COLOR_ME,
+  COLOR_THEM,
   CORNER_ESCAPE_TIME,
   CORNER_ESCAPE_ZONE,
   HALF_L,
@@ -29,14 +31,16 @@ import {
   PAD_R,
   RAMP_CAPTURE_R,
   RAMP_COOLDOWN,
+  RAMP_MISS,
   RAMP_RELEASE_BOOST,
   RAMP_SPEED,
   PLAYER_MAX_SPEED,
+  TARGET_HIT_Z,
   clamp,
 } from './game/const'
 import { buildTable } from './game/table'
 import { buildRamp } from './game/ramp'
-import { buildStars } from './game/stars'
+import { buildTargets } from './game/stars'
 import { GUN_R, SHOT_SPEED, DISABLE_SECONDS, makeGunMesh, makeShotMesh } from './game/guns'
 import { stepBall, type Body } from './game/physics'
 import { sfx } from './game/sound'
@@ -59,8 +63,8 @@ scene.background = new Color(0x1b2430)
 scene.add(buildTable())
 const ramp = buildRamp()
 scene.add(ramp.group)
-const stars = buildStars()
-scene.add(stars.group)
+const targets = buildTargets()
+scene.add(targets.group)
 
 // 3D perspective view (table reads as a trapezoid, far end narrower). The look
 // *angle* is fixed (CAM_DIR_REF); the *distance* is solved every frame so the
@@ -168,13 +172,11 @@ const ballMesh = new Mesh(
 scene.add(ballMesh)
 
 // --- Murderball look: electric-blue when ours, electric-pink when theirs. ---
-const MB_BLUE = 0x2ad4ff // electric blue (ours)
-const MB_PINK = 0xff3ecb // electric pink (theirs)
 const MB_SECONDS = 8 // length of the unstoppable window
 // Additive glow halo around the ball, shown only while murderball is armed.
 const ballGlow = new Mesh(
-  new SphereGeometry(BALL_R * 1.7, 24, 16),
-  new MeshBasicMaterial({ color: MB_BLUE, transparent: true, blending: AdditiveBlending, depthWrite: false }),
+  new SphereGeometry(BALL_R * 1.9, 24, 16),
+  new MeshBasicMaterial({ color: COLOR_ME, transparent: true, blending: AdditiveBlending, depthWrite: false }),
 )
 ballGlow.visible = false
 scene.add(ballGlow)
@@ -260,10 +262,8 @@ let scoreAI = 0
 let timeLeft = MATCH_SECONDS
 let over = false
 
-// Tug-of-war multiplier: possession = last paddle to touch the ball.
+// Possession = last paddle to touch the ball; it claims targets it strikes.
 let possession: 0 | 1 | null = null
-let balance = 0 // −2..+2, positive favours us
-let wasAtLeftWall = false
 let cornerTime = 0 // seconds the ball has dwelled in a corner (anti-trap)
 
 // --- Weapons: pick up a gun with the paddle, release to fire ---
@@ -300,35 +300,34 @@ interface Shard {
 }
 const shards: Shard[] = []
 
-// --- Ramp state ---
+// --- Ramp state --- The right mouth (entryPoints[0]) is ours, the left is
+// theirs; whoever's mouth the ball enters arms THAT side's murderball, no matter
+// who knocked it in. rampDir +1 rides right→left (ours), -1 rides left→right.
 let onRamp = false
 let rampPhase = 0 // 0..1 fraction of the ramp traversed since entry
-let rampDir = 1 // +1 enters at tip A (u:0→1), -1 enters at tip A' (u:1→0)
+let rampDir = 1
+let rampOwner: 0 | 1 = 0 // whose murderball this ride arms
 let rampCooldown = 0
 const rampLen = ramp.length
 const _cp = new Vector3()
-const _tan = new Vector3()
 
 function tryEnterRamp() {
   if (onRamp || rampCooldown > 0) return
   const speed = Math.hypot(ball.vx, ball.vz)
   if (speed < 6) return
-  const vnx = ball.vx / speed
-  const vnz = ball.vz / speed
   for (let i = 0; i < ramp.entryPoints.length; i++) {
     const e = ramp.entryPoints[i]
     const dx = ball.x - e.x
     const dz = ball.z - e.z
     if (dx * dx + dz * dz >= RAMP_CAPTURE_R * RAMP_CAPTURE_R) continue
-    // Only capture when the ball is moving roughly parallel INTO the rails at
-    // this tip — so a ball crossing the mouth sideways isn't swallowed.
-    const sign = i === 0 ? 1 : -1
-    ramp.curve.getTangent(i === 0 ? 0 : 1, _tan).multiplyScalar(sign)
-    const al = Math.hypot(_tan.x, _tan.z) || 1
-    if ((vnx * _tan.x + vnz * _tan.z) / al < 0.7) continue // ~45° tolerance
+    // Owner must be feeding it AWAY from their own end: our right mouth (i=0,
+    // near/+z end) takes a ball heading −z; their left mouth takes one heading +z.
+    if (i === 0 && ball.vz >= 0) continue
+    if (i === 1 && ball.vz <= 0) continue
     onRamp = true
     rampPhase = 0
-    rampDir = sign
+    rampDir = i === 0 ? 1 : -1
+    rampOwner = i as 0 | 1
     sfx.rampIn()
     return
   }
@@ -337,27 +336,28 @@ function tryEnterRamp() {
 function updateRamp(dt: number) {
   rampPhase += (RAMP_SPEED / rampLen) * dt
   if (rampPhase >= 1) {
-    // Reached the far tip: release along the exit tangent with a boost.
+    // Reached the far mouth: launch toward the opponent's goal but deliberately
+    // wide of the mouth, so the ball must bounce back before it can be scored.
     const uEnd = rampDir > 0 ? 1 : 0
     ramp.ride(uEnd, _cp)
-    ramp.curve.getTangent(uEnd, _tan).multiplyScalar(rampDir)
-    const dir = new Vector2(_tan.x, _tan.z)
-    if (dir.lengthSq() < 1e-6) dir.set(0, 1)
-    dir.normalize()
-    const speed = BALL_START_SPEED * RAMP_RELEASE_BOOST
     ball.x = _cp.x
     ball.z = _cp.z
-    ball.vx = dir.x * speed
-    ball.vz = dir.y * speed
+    // Owner 0 attacks the far goal (−z); owner 1 attacks the near goal (+z).
+    const goalZ = rampOwner === 0 ? -HALF_L : HALF_L
+    const aimX = RAMP_MISS // aim off-centre so it hits the end wall beside the mouth
+    const dirX = aimX - ball.x
+    const dirZ = goalZ - ball.z
+    const inv = 1 / Math.hypot(dirX, dirZ)
+    const speed = BALL_START_SPEED * RAMP_RELEASE_BOOST
+    ball.vx = dirX * inv * speed
+    ball.vz = dirZ * inv * speed
     ballY = BALL_R
     onRamp = false
     rampCooldown = RAMP_COOLDOWN
     sfx.rampOut()
-    // Clearing the ramp arms murderball for whoever last owned the ball.
-    if (possession !== null) {
-      murderball = possession
-      mbTimer = MB_SECONDS
-    }
+    // Arm murderball for the mouth's owner (not the last hitter).
+    murderball = rampOwner
+    mbTimer = MB_SECONDS
     return
   }
   const u = rampDir > 0 ? rampPhase : 1 - rampPhase
@@ -466,20 +466,22 @@ function update(dt: number) {
   else if (res.phasedIndex === 0 && murderball === 1) breakPaddle(0)
 
   if (res.goal === 'near') {
-    scoreAI += 1 + (balance < 0 ? -balance : 0) // opponent's multiplier
+    scoreAI += 1 + targets.countFor(1) // their claimed targets add to their goal
+    targets.reset()
     sfx.goalThem()
     serve(-1)
     return
   }
   if (res.goal === 'far') {
-    scorePlayer += 1 + (balance > 0 ? balance : 0) // our multiplier
+    scorePlayer += 1 + targets.countFor(0) // our claimed targets add to our goal
+    targets.reset()
     sfx.goalUs()
     serve(1)
     return
   }
 
   checkCornerTrap(dt)
-  checkStarHit()
+  checkTargets()
   tryEnterRamp()
 }
 
@@ -503,21 +505,21 @@ function checkCornerTrap(dt: number) {
   cornerTime = 0
 }
 
-// Tug-of-war: when the ball (owned by someone) strikes a star on the left wall,
-// nudge the balance toward the owner's side.
-function checkStarHit() {
-  const atLeft = ball.x <= -(HALF_W - BALL_R) + 0.06
-  if (atLeft && !wasAtLeftWall && possession !== null) {
-    for (const p of stars.positions) {
-      if (Math.abs(ball.z - p.z) < 1.7) {
-        balance = clamp(balance + (possession === 0 ? 1 : -1), -2, 2)
-        stars.setBalance(balance)
-        sfx.star()
-        break
-      }
+// Claim targets: while the ball is pressed against a side wall next to a target,
+// the last hitter lights it their colour (stealing it if the other side held it).
+function checkTargets() {
+  if (possession === null) return
+  const atWall = Math.abs(ball.x) > HALF_W - BALL_R - 0.12
+  if (!atWall) return
+  for (let i = 0; i < targets.positions.length; i++) {
+    const p = targets.positions[i]
+    if (Math.sign(ball.x) !== Math.sign(p.x)) continue
+    if (Math.abs(ball.z - p.z) > TARGET_HIT_Z) continue
+    if (targets.claims[i] !== possession) {
+      targets.claim(i, possession)
+      sfx.star()
     }
   }
-  wasAtLeftWall = atLeft
 }
 
 function updateWeapons(dt: number) {
@@ -681,7 +683,7 @@ function frame() {
 
   // Murderball glow: tint the ball and pulse an additive halo in the side colour.
   if (murderball !== null) {
-    const col = murderball === 0 ? MB_BLUE : MB_PINK
+    const col = murderball === 0 ? COLOR_ME : COLOR_THEM
     ;(ballMesh.material as MeshMatcapMaterial).color.set(col)
     ballGlow.visible = true
     ;(ballGlow.material as MeshBasicMaterial).color.set(col)
@@ -707,9 +709,8 @@ function frame() {
   const mm = Math.floor(timeLeft / 60)
   const ss = Math.floor(timeLeft % 60)
   scoreEl.textContent = `${pad(scorePlayer)}   ${mm}:${String(ss).padStart(2, '0')}   ${pad(scoreAI)}`
-  const bal = balance > 0 ? `+${balance} us` : balance < 0 ? `${-balance} them` : 'even'
   debugEl.textContent =
-    `|v| ${Math.hypot(ball.vx, ball.vz).toFixed(0)}  mult ${bal}` +
+    `|v| ${Math.hypot(ball.vx, ball.vz).toFixed(0)}  x${1 + targets.countFor(0)} / x${1 + targets.countFor(1)}` +
     (murderball !== null ? `  MURDERBALL ${mbTimer.toFixed(1)}` : '') +
     (aiDisabled > 0 ? `  AI OUT ${aiDisabled.toFixed(1)}` : '') +
     (guns.length ? '  GUN!' : '')
