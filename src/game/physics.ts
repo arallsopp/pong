@@ -21,6 +21,8 @@ export interface StepResult {
   goal: GoalSide
   /** Index of the paddle that struck the ball this step, or -1. */
   hitIndex: number
+  /** True if the ball bounced off a side/end wall this step (not a goal). */
+  wall: boolean
 }
 
 /**
@@ -33,14 +35,18 @@ export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
   ball.x += ball.vx * dt
   ball.z += ball.vz * dt
 
+  let wall = false
+
   // Side walls.
   const maxX = HALF_W - ball.r
   if (ball.x < -maxX) {
     ball.x = -maxX
     ball.vx = Math.abs(ball.vx)
+    wall = true
   } else if (ball.x > maxX) {
     ball.x = maxX
     ball.vx = -Math.abs(ball.vx)
+    wall = true
   }
 
   // End walls, with the goal mouth left open.
@@ -48,17 +54,19 @@ export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
   const inMouth = Math.abs(ball.x) < GOAL_HALF
   if (ball.z > maxZ) {
     if (inMouth) {
-      if (ball.z > HALF_L + ball.r) return { goal: 'near', hitIndex: -1 }
+      if (ball.z > HALF_L + ball.r) return { goal: 'near', hitIndex: -1, wall: false }
     } else {
       ball.z = maxZ
       ball.vz = -Math.abs(ball.vz)
+      wall = true
     }
   } else if (ball.z < -maxZ) {
     if (inMouth) {
-      if (ball.z < -HALF_L - ball.r) return { goal: 'far', hitIndex: -1 }
+      if (ball.z < -HALF_L - ball.r) return { goal: 'far', hitIndex: -1, wall: false }
     } else {
       ball.z = -maxZ
       ball.vz = Math.abs(ball.vz)
+      wall = true
     }
   }
 
@@ -68,7 +76,7 @@ export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
   }
 
   clampSpeed(ball)
-  return { goal: null, hitIndex }
+  return { goal: null, hitIndex, wall }
 }
 
 /** Elastic circle-circle response; a moving paddle transfers its velocity. */

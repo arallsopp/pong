@@ -35,11 +35,13 @@ import { buildRamp } from './game/ramp'
 import { buildStars } from './game/stars'
 import { GUN_R, SHOT_SPEED, DISABLE_SECONDS, makeGunMesh, makeShotMesh } from './game/guns'
 import { stepBall, type Body } from './game/physics'
+import { sfx } from './game/sound'
 
 const app = document.getElementById('app')!
 const scoreEl = document.getElementById('score')!
 const bannerEl = document.getElementById('banner')!
 const debugEl = document.getElementById('debug')!
+const muteEl = document.getElementById('mute') as HTMLButtonElement
 
 // --- Renderer at full display resolution; the 16-bit look comes from the
 // nearest-filtered bitmap textures on the geometry, not from downsampling. ---
@@ -57,13 +59,40 @@ const stars = buildStars()
 scene.add(stars.group)
 
 // 3D perspective view (table reads as a trapezoid, far end narrower). Lower and
-// further back than a top-down cam so the ramp loops rise off the table. Nudge
-// CAM_Y (height) / CAM_Z (back-off) / the lookAt to reframe.
-const CAM_Y = 30
-const CAM_Z = 26
+// further back than a top-down cam so the ramp loops rise off the table.
+// --- Camera framing dials (tune here) ---
+const CAM_TARGET = new Vector3(0, 1, -2) // where the camera looks
+const CAM_BASE = new Vector3(0, 30, 26) // landscape "resting" position
+// On a narrow (portrait) phone the table's width would crop, so we pull the
+// camera back proportionally until the full width fits. BASE_ASPECT is where no
+// pull-back is needed; MAX_ZOOMOUT caps it on very tall screens.
+const BASE_ASPECT = 1.3
+const MAX_ZOOMOUT = 2.2
+// As a rally builds, the camera eases lower for a flatter, tenser angle.
+const RALLY_FULL = 12 // paddle hits to reach the lowest angle
+const RALLY_LOWER_MAX = 0.5 // fraction of height dropped at full rally
+const RALLY_CAM_SPEED = 1.6 // how fast the camera eases toward the target angle
 const camera = new PerspectiveCamera(50, 1, 0.1, 200)
-camera.position.set(0, CAM_Y, CAM_Z)
-camera.lookAt(0, 1, -2)
+camera.position.copy(CAM_BASE)
+camera.lookAt(CAM_TARGET)
+
+let rally = 0 // consecutive paddle hits since the last serve
+let rallyLower = 0 // smoothed 0..1 camera-lowering amount
+
+function updateCamera(frameDt: number) {
+  // Ease the lowering toward the current rally level (0 while served out).
+  const low = clamp(rally / RALLY_FULL, 0, 1)
+  rallyLower += (low - rallyLower) * Math.min(1, frameDt * RALLY_CAM_SPEED)
+
+  const fit = camera.aspect < BASE_ASPECT ? Math.min(BASE_ASPECT / camera.aspect, MAX_ZOOMOUT) : 1
+  let offY = (CAM_BASE.y - CAM_TARGET.y) * fit
+  let offZ = (CAM_BASE.z - CAM_TARGET.z) * fit
+  const drop = rallyLower * RALLY_LOWER_MAX
+  offY *= 1 - drop // lower the eye
+  offZ *= 1 + drop * 0.25 // drift back a touch so the table stays framed
+  camera.position.set(CAM_TARGET.x, CAM_TARGET.y + offY, CAM_TARGET.z + offZ)
+  camera.lookAt(CAM_TARGET)
+}
 
 // Shared chrome matcap (needs no lights) for the ball and paddles.
 const metalMatcap = makeMetalMatcap()
@@ -77,10 +106,13 @@ const ballMesh = new Mesh(
 )
 scene.add(ballMesh)
 
+// One soft blob-shadow texture, shared by the ball and both paddles.
+const shadowTex = makeShadowTexture()
+
 // Dynamic ball shadow — projects straight down, growing and fading with height.
 const ballShadow = new Mesh(
   new CircleGeometry(BALL_R * 1.3, 24),
-  new MeshBasicMaterial({ map: makeShadowTexture(), transparent: true, depthWrite: false }),
+  new MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }),
 )
 ballShadow.rotation.x = -Math.PI / 2
 scene.add(ballShadow)
@@ -98,6 +130,20 @@ const ai: Body = { x: 0, z: -HALF_L * 0.6, vx: 0, vz: 0, r: PAD_R }
 const playerMesh = makePaddle(0x9fb4cc) // lighter steel-blue (ours, bottom)
 const aiMesh = makePaddle(0x7d8ea3) // steel-grey (theirs, top)
 scene.add(playerMesh, aiMesh)
+
+// Flat blob-shadows under each paddle (they sit on the table, so these are a
+// constant size — just track x/z, nudged slightly toward the viewer).
+function makePaddleShadow(): Mesh {
+  const m = new Mesh(
+    new CircleGeometry(PAD_R * 1.15, 24),
+    new MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity: 0.5 }),
+  )
+  m.rotation.x = -Math.PI / 2
+  return m
+}
+const playerShadow = makePaddleShadow()
+const aiShadow = makePaddleShadow()
+scene.add(playerShadow, aiShadow)
 
 // --- Direct touch-drag: raycast pointer to the table plane ---
 const raycaster = new Raycaster()
@@ -118,17 +164,22 @@ function updatePointer(e: PointerEvent) {
   }
 }
 renderer.domElement.addEventListener('pointerdown', (e) => {
+  sfx.unlock() // first gesture: satisfy the audio autoplay policy
   pointerActive = true
   updatePointer(e)
 })
 renderer.domElement.addEventListener('pointermove', (e) => {
   if (pointerActive) updatePointer(e)
 })
-renderer.domElement.addEventListener('pointerup', () => {
-  pointerActive = false
-  fireGun() // releasing while the paddle covers a gun fires it
-})
+renderer.domElement.addEventListener('pointerup', () => (pointerActive = false))
 renderer.domElement.addEventListener('pointercancel', () => (pointerActive = false))
+
+// Mute toggle (top-right HUD button).
+muteEl.addEventListener('click', () => {
+  const m = !sfx.isMuted()
+  sfx.setMuted(m)
+  muteEl.textContent = m ? '🔇' : '🔊'
+})
 
 // --- Match state ---
 let scorePlayer = 0
@@ -148,6 +199,7 @@ interface Gun {
   mesh: Mesh
 }
 interface Shot {
+  x: number
   z: number
   mesh: Mesh
 }
@@ -185,6 +237,7 @@ function tryEnterRamp() {
     onRamp = true
     rampPhase = 0
     rampDir = sign
+    sfx.rampIn()
     return
   }
 }
@@ -207,6 +260,7 @@ function updateRamp(dt: number) {
     ballY = BALL_R
     onRamp = false
     rampCooldown = RAMP_COOLDOWN
+    sfx.rampOut()
     return
   }
   const u = rampDir > 0 ? rampPhase : 1 - rampPhase
@@ -225,6 +279,7 @@ function serve(toward: number) {
   ballY = BALL_R
   onRamp = false
   possession = null
+  rally = 0 // fresh point: let the camera ease back up
   rampCooldown = 1.0 // don't let the ramp grab the ball at kickoff
 }
 serve(Math.random() < 0.5 ? 1 : -1)
@@ -264,6 +319,7 @@ function update(dt: number) {
   }
   if (rampCooldown > 0) rampCooldown -= dt
   updateWeapons(dt)
+  tryPickupGun()
 
   if (onRamp) {
     updateRamp(dt) // ball is on the rail; 2D physics suspended
@@ -271,16 +327,27 @@ function update(dt: number) {
   }
 
   const res = stepBall(ball, dt, [player, ai])
-  if (res.hitIndex === 0) possession = 0
-  else if (res.hitIndex === 1) possession = 1
+  if (res.hitIndex === 0) {
+    possession = 0
+    rally++
+    sfx.paddle(Math.hypot(ball.vx, ball.vz))
+  } else if (res.hitIndex === 1) {
+    possession = 1
+    rally++
+    sfx.paddle(Math.hypot(ball.vx, ball.vz))
+  } else if (res.wall) {
+    sfx.wall()
+  }
 
   if (res.goal === 'near') {
     scoreAI += 1 + (balance < 0 ? -balance : 0) // opponent's multiplier
+    sfx.goalThem()
     serve(-1)
     return
   }
   if (res.goal === 'far') {
     scorePlayer += 1 + (balance > 0 ? balance : 0) // our multiplier
+    sfx.goalUs()
     serve(1)
     return
   }
@@ -298,6 +365,7 @@ function checkStarHit() {
       if (Math.abs(ball.z - p.z) < 1.7) {
         balance = clamp(balance + (possession === 0 ? 1 : -1), -2, 2)
         stars.setBalance(balance)
+        sfx.star()
         break
       }
     }
@@ -311,15 +379,22 @@ function updateWeapons(dt: number) {
     spawnGun()
     gunTimer = 7 + Math.random() * 6
   }
+  // Bolts home in on the AI paddle — auto-targeting.
   for (let i = shots.length - 1; i >= 0; i--) {
     const s = shots[i]
-    s.z -= SHOT_SPEED * dt
-    s.mesh.position.z = s.z
-    if (s.z <= ai.z) {
+    const dx = ai.x - s.x
+    const dz = ai.z - s.z
+    const d = Math.hypot(dx, dz) || 1
+    s.x += (dx / d) * SHOT_SPEED * dt
+    s.z += (dz / d) * SHOT_SPEED * dt
+    s.mesh.position.set(s.x, 0.5, s.z)
+    s.mesh.rotation.y = Math.atan2(dx, dz) // point the bolt along its heading
+    if (d < PAD_R + 0.4) {
       aiDisabled = DISABLE_SECONDS
+      sfx.zap()
       scene.remove(s.mesh)
       shots.splice(i, 1)
-    } else if (s.z < -HALF_L) {
+    } else if (Math.abs(s.z) > HALF_L + 2 || Math.abs(s.x) > HALF_W + 2) {
       scene.remove(s.mesh)
       shots.splice(i, 1)
     }
@@ -335,17 +410,37 @@ function spawnGun() {
   guns.push({ x, z, mesh })
 }
 
-function fireGun() {
-  const idx = guns.findIndex(
-    (g) => (g.x - player.x) ** 2 + (g.z - player.z) ** 2 < (PAD_R + GUN_R) ** 2,
-  )
-  if (idx < 0) return
-  scene.remove(guns[idx].mesh)
-  guns.splice(idx, 1)
+// Touching a gun with the paddle grabs it immediately (token vanishes at once)
+// and fires an auto-targeting bolt at the opponent.
+function tryPickupGun() {
+  for (let i = guns.length - 1; i >= 0; i--) {
+    const g = guns[i]
+    if ((g.x - player.x) ** 2 + (g.z - player.z) ** 2 < (PAD_R + GUN_R) ** 2) {
+      scene.remove(g.mesh)
+      guns.splice(i, 1)
+      fireShot()
+    }
+  }
+}
+
+function fireShot() {
   const mesh = makeShotMesh()
   mesh.position.set(player.x, 0.5, player.z)
   scene.add(mesh)
-  shots.push({ z: player.z, mesh })
+  shots.push({ x: player.x, z: player.z, mesh })
+  sfx.gun()
+}
+
+// Clear win/lose/draw scoreboard at the final whistle.
+function endMatch() {
+  const result = scorePlayer > scoreAI ? 'win' : scorePlayer < scoreAI ? 'lose' : 'draw'
+  const headline = result === 'win' ? 'YOU WIN' : result === 'lose' ? 'YOU LOSE' : 'DRAW'
+  bannerEl.style.display = 'flex'
+  bannerEl.className = result // color via CSS (win = amber, lose = red, draw = grey)
+  bannerEl.textContent = `${headline}\nYOU ${pad(scorePlayer)}   AI ${pad(scoreAI)}`
+  if (result === 'win') sfx.win()
+  else if (result === 'lose') sfx.lose()
+  else sfx.draw()
 }
 
 function frame() {
@@ -358,8 +453,7 @@ function frame() {
     if (timeLeft <= 0) {
       timeLeft = 0
       over = true
-      bannerEl.style.display = 'flex'
-      bannerEl.textContent = `MATCH OVER\nSCORE ${pad(scorePlayer)} TO ${pad(scoreAI)}`
+      endMatch()
     }
     acc += frameDt
     while (acc >= DT) {
@@ -367,6 +461,8 @@ function frame() {
       acc -= DT
     }
   }
+
+  updateCamera(frameDt)
 
   ballMesh.position.set(ball.x, ballY, ball.z)
   // Ball shadow: directly below, growing and fading with altitude.
@@ -377,13 +473,11 @@ function frame() {
   ;(ballShadow.material as MeshBasicMaterial).opacity = clamp(0.55 - alt * 0.03, 0.12, 0.55)
   playerMesh.position.set(player.x, PADDLE_H / 2, player.z)
   aiMesh.position.set(ai.x, PADDLE_H / 2, ai.z)
+  // Paddle shadows track their paddle, nudged slightly toward the viewer (+z).
+  playerShadow.position.set(player.x, 0.04, player.z + 0.2)
+  aiShadow.position.set(ai.x, 0.04, ai.z + 0.2)
   // AI flashes red while disabled by a shot.
   ;(aiMesh.material as MeshMatcapMaterial).color.set(aiDisabled > 0 ? 0xd23b3b : 0x7d8ea3)
-  // Highlight a gun the paddle is hovering (ready to fire on release).
-  for (const g of guns) {
-    const over = (g.x - player.x) ** 2 + (g.z - player.z) ** 2 < (PAD_R + GUN_R) ** 2
-    g.mesh.scale.setScalar(over ? 1.3 : 1)
-  }
 
   const mm = Math.floor(timeLeft / 60)
   const ss = Math.floor(timeLeft % 60)

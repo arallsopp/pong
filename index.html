@@ -28,12 +28,22 @@
       #banner {
         position: absolute; inset: 0; display: none;
         align-items: center; justify-content: center; text-align: center;
-        font-size: 28px; color: #ffcc33; text-shadow: 3px 3px 0 #000;
+        font-size: 34px; line-height: 1.5; color: #ffcc33; text-shadow: 3px 3px 0 #000;
         white-space: pre-line;
       }
+      #banner.win { color: #7dffb0; }
+      #banner.lose { color: #ff5b5b; }
+      #banner.draw { color: #cbd6e4; }
       #debug {
         position: absolute; bottom: env(safe-area-inset-bottom, 8px); left: 10px;
         font-size: 11px; opacity: 0.6; letter-spacing: 1px;
+      }
+      #mute {
+        position: absolute; top: env(safe-area-inset-top, 10px); right: 10px;
+        pointer-events: auto; width: 40px; height: 40px;
+        background: rgba(20,26,34,0.6); border: 1px solid #40506a; border-radius: 8px;
+        font-size: 20px; line-height: 1; color: #ffcc33; cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
       }
     </style>
   </head>
@@ -43,6 +53,7 @@
       <div id="score"></div>
       <div id="banner"></div>
       <div id="debug"></div>
+      <button id="mute" aria-label="Toggle sound">🔊</button>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
