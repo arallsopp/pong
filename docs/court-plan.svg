@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="870" height="892" viewBox="0 0 870 892" font-family="ui-monospace, Menlo, monospace">
+<rect x="0" y="0" width="870" height="892" fill="#141b25"/>
+<line x1="83.0" y1="72.0" x2="83.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="127.0" y1="72.0" x2="127.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="171.0" y1="72.0" x2="171.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="215.0" y1="72.0" x2="215.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="259.0" y1="72.0" x2="259.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="303.0" y1="72.0" x2="303.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="347.0" y1="72.0" x2="347.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="391.0" y1="72.0" x2="391.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="435.0" y1="72.0" x2="435.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="479.0" y1="72.0" x2="479.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="523.0" y1="72.0" x2="523.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="567.0" y1="72.0" x2="567.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="611.0" y1="72.0" x2="611.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="655.0" y1="72.0" x2="655.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="699.0" y1="72.0" x2="699.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="743.0" y1="72.0" x2="743.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="787.0" y1="72.0" x2="787.0" y2="820.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="94.0" x2="798.0" y2="94.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="138.0" x2="798.0" y2="138.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="182.0" x2="798.0" y2="182.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="226.0" x2="798.0" y2="226.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="270.0" x2="798.0" y2="270.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="314.0" x2="798.0" y2="314.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="358.0" x2="798.0" y2="358.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="402.0" x2="798.0" y2="402.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="446.0" x2="798.0" y2="446.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="490.0" x2="798.0" y2="490.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="534.0" x2="798.0" y2="534.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="578.0" x2="798.0" y2="578.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="622.0" x2="798.0" y2="622.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="666.0" x2="798.0" y2="666.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="710.0" x2="798.0" y2="710.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="754.0" x2="798.0" y2="754.0" stroke="rgba(255,255,255,0.05)"/>
+<line x1="72.0" y1="798.0" x2="798.0" y2="798.0" stroke="rgba(255,255,255,0.05)"/>
+<rect x="215.0" y="94.0" width="440.0" height="704.0" fill="#243449" stroke="none"/>
+<line x1="215.0" y1="446.0" x2="655.0" y2="446.0" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>
+<circle cx="435.0" cy="446.0" r="66.0" fill="none" stroke="rgba(200,180,255,0.35)" stroke-width="2"/>
+<circle cx="435.0" cy="446.0" r="12.1" fill="#e9f1fb"/>
+<rect x="208.4" y="94.0" width="13.2" height="704.0" fill="#46566b"/>
+<rect x="648.4" y="94.0" width="13.2" height="704.0" fill="#46566b"/>
+<rect x="215.0" y="87.4" width="143.0" height="13.2" fill="#46566b"/>
+<rect x="512.0" y="87.4" width="143.0" height="13.2" fill="#46566b"/>
+<line x1="358.0" y1="94.0" x2="512.0" y2="94.0" stroke="#ffcc33" stroke-width="4"/>
+<rect x="215.0" y="791.4" width="143.0" height="13.2" fill="#46566b"/>
+<rect x="512.0" y="791.4" width="143.0" height="13.2" fill="#46566b"/>
+<line x1="358.0" y1="798.0" x2="512.0" y2="798.0" stroke="#ffcc33" stroke-width="4"/>
+<line x1="655.0" y1="578.0" x2="215.0" y2="314.0" stroke="#8ea4bd" stroke-width="3" stroke-dasharray="7 6"/>
+<circle cx="712.2" cy="578.0" r="57.2" fill="none" stroke="#2ad4ff" stroke-width="3" stroke-dasharray="6 5"/>
+<circle cx="157.8" cy="314.0" r="57.2" fill="none" stroke="#ff3ecb" stroke-width="3" stroke-dasharray="6 5"/>
+<rect x="646.2" y="593.4" width="17.6" height="30.8" fill="#2ad4ff"/>
+<rect x="206.2" y="298.6" width="17.6" height="30.8" fill="#ff3ecb"/>
+<path d="M 619.8 613.2 L 619.8 551.6" stroke="#2ad4ff" stroke-width="2.5" marker-end="url(#ab)"/>
+<path d="M 250.2 278.8 L 250.2 340.4" stroke="#ff3ecb" stroke-width="2.5" marker-end="url(#ap)"/>
+<circle cx="653.7" cy="507.6" r="18.0" fill="#0a0d12" stroke="#9fb4cc" stroke-width="2.5"/>
+<circle cx="653.7" cy="648.4" r="18.0" fill="#0a0d12" stroke="#9fb4cc" stroke-width="2.5"/>
+<circle cx="216.3" cy="384.4" r="18.0" fill="#0a0d12" stroke="#9fb4cc" stroke-width="2.5"/>
+<circle cx="216.3" cy="243.6" r="18.0" fill="#0a0d12" stroke="#9fb4cc" stroke-width="2.5"/>
+<circle cx="435.0" cy="657.2" r="30.8" fill="#9fb4cc" stroke="#dfe" stroke-width="1"/>
+<circle cx="435.0" cy="234.8" r="30.8" fill="#7d8ea3" stroke="#bcd" stroke-width="1"/>
+<text x="215.0" y="820.022" fill="#9fb4cc" font-size="13" text-anchor="middle">x=-10</text>
+<text x="325.0" y="820.022" fill="#9fb4cc" font-size="13" text-anchor="middle">x=-5</text>
+<text x="435.0" y="820.022" fill="#9fb4cc" font-size="13" text-anchor="middle">x=0</text>
+<text x="545.0" y="820.022" fill="#9fb4cc" font-size="13" text-anchor="middle">x=5</text>
+<text x="655.0" y="820.022" fill="#9fb4cc" font-size="13" text-anchor="middle">x=10</text>
+<text x="64" y="98" fill="#9fb4cc" font-size="13" text-anchor="end">z=-16</text>
+<text x="64" y="274" fill="#9fb4cc" font-size="13" text-anchor="end">z=-8</text>
+<text x="64" y="450" fill="#9fb4cc" font-size="13" text-anchor="end">z=0</text>
+<text x="64" y="626" fill="#9fb4cc" font-size="13" text-anchor="end">z=8</text>
+<text x="64" y="802" fill="#9fb4cc" font-size="13" text-anchor="end">z=16</text>
+<text x="435.0" y="83.0" fill="#cbd6e4" font-size="16" text-anchor="middle" font-weight="700">THEIR END  (−z, far)</text>
+<text x="435.0" y="817.8" fill="#2ad4ff" font-size="16" text-anchor="middle" font-weight="700">MY END  (+z, near, blue)</text>
+<text x="435.0" y="111.6" fill="#ffcc33" font-size="12" text-anchor="middle" font-weight="700">their goal</text>
+<text x="435.0" y="782.6" fill="#ffcc33" font-size="12" text-anchor="middle" font-weight="700">my goal</text>
+<text x="734.2" y="578.0" fill="#2ad4ff" font-size="13" text-anchor="middle" font-weight="700">MY loop</text>
+<text x="135.8" y="314.0" fill="#ff3ecb" font-size="13" text-anchor="middle" font-weight="700">THEIR loop</text>
+<text x="435.0" y="474.6" fill="#aebfd4" font-size="12" text-anchor="middle" font-weight="700">overhead cross →</text>
+<text x="615.4" y="507.6" fill="#9fb4cc" font-size="11" text-anchor="end" font-weight="700">target</text>
+<text x="615.4" y="648.4" fill="#9fb4cc" font-size="11" text-anchor="end" font-weight="700">target</text>
+<text x="64" y="34" fill="#e6edf5" font-size="19" font-weight="700">MURDERBALL — court plan (top-down, to scale · 20 × 32 units)</text>
+<text x="64" y="54" fill="#8ea4bd" font-size="12">Dashed = ramp is up in the air (loops climb 0.55→6; overhead apex ≈ 8 — not shown in a plan). Arrows = required entry direction.</text>
+<defs>
+  <marker id="ab" markerWidth="9" markerHeight="9" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#2ad4ff"/></marker>
+  <marker id="ap" markerWidth="9" markerHeight="9" refX="4" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ff3ecb"/></marker>
+</defs>
+</svg>

@@ -92,6 +92,10 @@ it** (it made the round ball blocky). Don't reintroduce it without asking.
 - **We build blind** — the assistant can't see the running game; the user
   eyeballs it and reports back. So: keep shape/feel constants at the **top of
   each module** and easy to tune, and expect a few iterations per visual change.
+- **Layout reference:** `docs/court-plan.svg` is a to-scale top-down plan
+  (walls, goals, ramp loops, mouths, targets, paddles) for discussing geometry.
+  Regenerate from the current constants with `node docs/court-plan.js
+  docs/court-plan.svg` after changing dimensions.
 - The **ramp is an over-the-top arch** between two wall holes (right=ours,
   left=theirs), tuned by the shape constants at the top of `ramp.ts` (`OUT_BULGE`,
   `CURL_Y`, `PEAK_Y`, `RIDE_LIFT`, etc.). It's a plain Catmull-Rom through 7
