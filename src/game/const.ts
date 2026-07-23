@@ -25,6 +25,12 @@ export const RAMP_SPEED = 26 // travel speed along the rail
 export const RAMP_RELEASE_BOOST = 1.25 // exit speed multiplier (accelerator, auto for now)
 export const RAMP_COOLDOWN = 1.5 // seconds before the ramp can grab the ball again
 
+// Anti-trap: if the ball dwells in a corner (near a side AND an end wall) longer
+// than CORNER_ESCAPE_TIME, it's kicked back toward centre so it can't get pinned
+// there (by wall bounce limit-cycles or a paddle holding it in the corner).
+export const CORNER_ESCAPE_ZONE = 3.0 // how far from each wall counts as "in the corner"
+export const CORNER_ESCAPE_TIME = 0.5 // seconds of dwell before the escape kick
+
 // Player half is z in [0, HALF_L]; AI half is z in [-HALF_L, 0].
 export const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v))

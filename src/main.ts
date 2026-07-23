@@ -21,6 +21,8 @@ import {
   AI_MAX_SPEED,
   BALL_R,
   BALL_START_SPEED,
+  CORNER_ESCAPE_TIME,
+  CORNER_ESCAPE_ZONE,
   HALF_L,
   HALF_W,
   MATCH_SECONDS,
@@ -60,41 +62,97 @@ scene.add(ramp.group)
 const stars = buildStars()
 scene.add(stars.group)
 
-// 3D perspective view (table reads as a trapezoid, far end narrower). Lower and
-// further back than a top-down cam so the ramp loops rise off the table.
+// 3D perspective view (table reads as a trapezoid, far end narrower). The look
+// *angle* is fixed (CAM_DIR_REF); the *distance* is solved every frame so the
+// table is as large as possible while all four corners stay in view — so it
+// fits any viewport (portrait phone, wide desktop) with no cropping.
 // --- Camera framing dials (tune here) ---
 const CAM_TARGET = new Vector3(0, 1, -2) // where the camera looks
-const CAM_BASE = new Vector3(0, 30, 26) // landscape "resting" position
-// On a narrow (portrait) phone the table's width would crop, so we pull the
-// camera back proportionally until the full width fits. BASE_ASPECT is where no
-// pull-back is needed; MAX_ZOOMOUT caps it on very tall screens.
-const BASE_ASPECT = 1.3
-const MAX_ZOOMOUT = 2.2
+const CAM_DIR_REF = new Vector3(0, 29, 28) // look direction (angle) from the target
+const CORNER_MARGIN = 0.96 // corners sit within 96% of the frame at max zoom (small border)
 // As a rally builds, the camera eases *slightly* lower for a subtly tenser
 // angle — only a few degrees, and very slowly. Keep these small.
 const RALLY_FULL = 16 // paddle hits to reach the (gentle) lowest angle
 const RALLY_LOWER_MAX = 0.12 // fraction of height dropped at full rally (~4°)
 const RALLY_CAM_SPEED = 0.4 // slow ease toward the target angle (~3s constant)
+// Opening shot: zoom from a wider view into the fitted play view before play.
+const INTRO_SECONDS = 1
+const INTRO_START_SCALE = 1.5 // how far out the opening shot begins, vs the fit
+
 const camera = new PerspectiveCamera(50, 1, 0.1, 200)
-camera.position.copy(CAM_BASE)
+camera.position.copy(CAM_TARGET).addScaledVector(CAM_DIR_REF, 1.5)
 camera.lookAt(CAM_TARGET)
 
 let rally = 0 // consecutive paddle hits since the last serve
 let rallyLower = 0 // smoothed 0..1 camera-lowering amount
 
+// The four table-floor corners; the fit keeps all of these on-screen.
+const CAM_CORNERS = [
+  new Vector3(HALF_W, 0, HALF_L),
+  new Vector3(-HALF_W, 0, HALF_L),
+  new Vector3(HALF_W, 0, -HALF_L),
+  new Vector3(-HALF_W, 0, -HALF_L),
+]
+const _dir = new Vector3()
+const _fitPos = new Vector3()
+const _introStart = new Vector3()
+const _proj = new Vector3()
+
+// Look direction after the (gentle) rally-lowering is applied, into `out`.
+function rallyDir(out: Vector3) {
+  const drop = rallyLower * RALLY_LOWER_MAX
+  out.set(0, CAM_DIR_REF.y * (1 - drop), CAM_DIR_REF.z * (1 + drop * 0.1))
+}
+
+// Do all four corners project inside the frame with the camera `k` units along
+// `dir` from the target? (Mutates the camera — callers set the final pose.)
+function cornersFit(dir: Vector3, k: number): boolean {
+  camera.position.copy(CAM_TARGET).addScaledVector(dir, k)
+  camera.lookAt(CAM_TARGET)
+  camera.updateMatrixWorld()
+  camera.matrixWorldInverse.copy(camera.matrixWorld).invert()
+  for (const c of CAM_CORNERS) {
+    _proj.copy(c).project(camera)
+    if (Math.abs(_proj.x) > CORNER_MARGIN || Math.abs(_proj.y) > CORNER_MARGIN) return false
+  }
+  return true
+}
+
+// Smallest distance scale along `dir` (largest table) that still fits the
+// corners — binary search between a near and a far bound.
+function fitScale(dir: Vector3): number {
+  let lo = 0.3 // too close: corners spill off-screen
+  let hi = 5 // far enough that everything fits
+  for (let i = 0; i < 20; i++) {
+    const mid = (lo + hi) / 2
+    if (cornersFit(dir, mid)) hi = mid
+    else lo = mid
+  }
+  return hi
+}
+
 function updateCamera(frameDt: number) {
   // Ease the lowering toward the current rally level (0 while served out).
   const low = clamp(rally / RALLY_FULL, 0, 1)
   rallyLower += (low - rallyLower) * Math.min(1, frameDt * RALLY_CAM_SPEED)
-
-  const fit = camera.aspect < BASE_ASPECT ? Math.min(BASE_ASPECT / camera.aspect, MAX_ZOOMOUT) : 1
-  let offY = (CAM_BASE.y - CAM_TARGET.y) * fit
-  let offZ = (CAM_BASE.z - CAM_TARGET.z) * fit
-  const drop = rallyLower * RALLY_LOWER_MAX
-  offY *= 1 - drop // lower the eye a few degrees
-  offZ *= 1 + drop * 0.1 // drift back a hair so the table stays framed
-  camera.position.set(CAM_TARGET.x, CAM_TARGET.y + offY, CAM_TARGET.z + offZ)
+  rallyDir(_dir)
+  _fitPos.copy(CAM_TARGET).addScaledVector(_dir, fitScale(_dir))
+  camera.position.copy(_fitPos)
   camera.lookAt(CAM_TARGET)
+}
+
+// Opening zoom: ease from a wider shot into the fitted play view. Returns true
+// once the intro has finished.
+function updateIntro(elapsed: number) {
+  const t = clamp(elapsed / INTRO_SECONDS, 0, 1)
+  const e = 1 - Math.pow(1 - t, 3) // ease-out cubic
+  rallyDir(_dir) // rally is 0 pre-play, so this is the resting angle
+  const k = fitScale(_dir)
+  _fitPos.copy(CAM_TARGET).addScaledVector(_dir, k)
+  _introStart.copy(CAM_TARGET).addScaledVector(_dir, k * INTRO_START_SCALE)
+  camera.position.lerpVectors(_introStart, _fitPos, e)
+  camera.lookAt(CAM_TARGET)
+  return t >= 1
 }
 
 // Shared chrome matcap (needs no lights) for the ball and paddles.
@@ -206,6 +264,7 @@ let over = false
 let possession: 0 | 1 | null = null
 let balance = 0 // −2..+2, positive favours us
 let wasAtLeftWall = false
+let cornerTime = 0 // seconds the ball has dwelled in a corner (anti-trap)
 
 // --- Weapons: pick up a gun with the paddle, release to fire ---
 interface Gun {
@@ -335,6 +394,8 @@ const DT = 1 / HZ
 const MAX_FRAME = 0.25
 let acc = 0
 let last = performance.now() / 1000
+let playing = false // gated on the opening zoom finishing
+let introElapsed = 0
 
 function moveBody(b: Body, tx: number, tz: number, maxSpeed: number, dt: number) {
   const step = maxSpeed * dt
@@ -417,8 +478,29 @@ function update(dt: number) {
     return
   }
 
+  checkCornerTrap(dt)
   checkStarHit()
   tryEnterRamp()
+}
+
+// Anti-trap: kick the ball back toward table centre if it lingers in a corner.
+function checkCornerTrap(dt: number) {
+  const inCorner =
+    Math.abs(ball.x) > HALF_W - CORNER_ESCAPE_ZONE && Math.abs(ball.z) > HALF_L - CORNER_ESCAPE_ZONE
+  if (!inCorner) {
+    cornerTime = 0
+    return
+  }
+  cornerTime += dt
+  if (cornerTime < CORNER_ESCAPE_TIME) return
+  // Redirect toward centre (0,0) — always away from both walls, never a goal.
+  const dx = -Math.sign(ball.x) || -1
+  const dz = -Math.sign(ball.z) || -1
+  const inv = 1 / Math.hypot(dx, dz)
+  const speed = Math.max(BALL_START_SPEED, Math.hypot(ball.vx, ball.vz))
+  ball.vx = dx * inv * speed
+  ball.vz = dz * inv * speed
+  cornerTime = 0
 }
 
 // Tug-of-war: when the ball (owned by someone) strikes a star on the left wall,
@@ -566,21 +648,27 @@ function frame() {
   const frameDt = Math.min(now - last, MAX_FRAME)
   last = now
 
-  if (!over) {
-    timeLeft -= frameDt
-    if (timeLeft <= 0) {
-      timeLeft = 0
-      over = true
-      endMatch()
+  if (!playing) {
+    // Opening zoom-in; gameplay and the match clock are held until it finishes.
+    introElapsed += frameDt
+    if (updateIntro(introElapsed)) playing = true
+  } else {
+    if (!over) {
+      timeLeft -= frameDt
+      if (timeLeft <= 0) {
+        timeLeft = 0
+        over = true
+        endMatch()
+      }
+      acc += frameDt
+      while (acc >= DT) {
+        update(DT)
+        acc -= DT
+      }
     }
-    acc += frameDt
-    while (acc >= DT) {
-      update(DT)
-      acc -= DT
-    }
+    updateCamera(frameDt)
   }
 
-  updateCamera(frameDt)
   updateShards(frameDt)
 
   ballMesh.position.set(ball.x, ballY, ball.z)
