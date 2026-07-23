@@ -1,6 +1,24 @@
 import { CanvasTexture, NearestFilter, SRGBColorSpace } from 'three'
 import { GOAL_HALF, HALF_W } from './const'
 
+// --- Steel plate look, shared with the walls so the whole court is one material.
+// The floor is painted at PLATE_PX texture pixels per world unit; the walls match
+// that density and the same rivet grid, so rivets line up wherever you look. ---
+export const PLATE_PX = 12.8 // texture pixels per world unit (256 px across 20 units)
+export const RIVET_PX = 22 // rivet grid spacing, in those pixels (≈1.72 units)
+export const PLATE_EDGE = '#556982'
+export const PLATE_MID = '#5f7490'
+export const RIVET_LIGHT = '#9fb4cc'
+export const RIVET_DARK = '#3a4658'
+
+/** A 2×2 bevel: light top-left, dark bottom-right. */
+export function rivet(g: CanvasRenderingContext2D, x: number, y: number) {
+  g.fillStyle = RIVET_LIGHT
+  g.fillRect(x - 1, y - 1, 1, 1)
+  g.fillStyle = RIVET_DARK
+  g.fillRect(x, y, 1, 1)
+}
+
 /**
  * Procedurally paints the Bitmap-Brothers metal-blue floor: a riveted steel
  * plate, a big lavender 5-point star, a green center line with rivet dots, and
@@ -23,9 +41,9 @@ export function makeFloorTexture(): CanvasTexture {
 
   // --- steel base with a faint vertical panel gradient ---
   const grad = g.createLinearGradient(0, 0, 0, H)
-  grad.addColorStop(0, '#556982')
-  grad.addColorStop(0.5, '#5f7490')
-  grad.addColorStop(1, '#556982')
+  grad.addColorStop(0, PLATE_EDGE)
+  grad.addColorStop(0.5, PLATE_MID)
+  grad.addColorStop(1, PLATE_EDGE)
   g.fillStyle = grad
   g.fillRect(0, 0, W, H)
 
@@ -44,7 +62,7 @@ export function makeFloorTexture(): CanvasTexture {
   embossCircle(g, cx, cy, 34)
 
   // --- rivet dot grid over the whole plate, denser on the center line ---
-  const step = 22
+  const step = RIVET_PX
   for (let y = step; y < H; y += step) {
     for (let x = step; x < W; x += step) {
       rivet(g, x, y)
@@ -67,22 +85,14 @@ export function makeFloorTexture(): CanvasTexture {
 
 function embossCircle(g: CanvasRenderingContext2D, cx: number, cy: number, r: number) {
   g.lineWidth = 1
-  g.strokeStyle = '#9fb4cc' // highlight, offset up-left
+  g.strokeStyle = RIVET_LIGHT // highlight, offset up-left
   g.beginPath()
   g.arc(cx - 0.6, cy - 0.6, r, 0, Math.PI * 2)
   g.stroke()
-  g.strokeStyle = '#3a4658' // shadow, offset down-right
+  g.strokeStyle = RIVET_DARK // shadow, offset down-right
   g.beginPath()
   g.arc(cx + 0.6, cy + 0.6, r, 0, Math.PI * 2)
   g.stroke()
-}
-
-function rivet(g: CanvasRenderingContext2D, x: number, y: number) {
-  // A 2×2 bevel: light top-left, dark bottom-right.
-  g.fillStyle = '#9fb4cc'
-  g.fillRect(x - 1, y - 1, 1, 1)
-  g.fillStyle = '#3a4658'
-  g.fillRect(x, y, 1, 1)
 }
 
 function drawGoal(g: CanvasRenderingContext2D, cx: number, y: number, halfPx: number) {

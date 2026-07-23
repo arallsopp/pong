@@ -29,12 +29,14 @@ import {
   HALF_W,
   MATCH_SECONDS,
   PAD_R,
+  RAMP_AIM_DOT,
   RAMP_CAPTURE_R,
   RAMP_COOLDOWN,
   RAMP_MISS,
   RAMP_RELEASE_BOOST,
   RAMP_SPEED,
   PLAYER_MAX_SPEED,
+  SLOTS,
   TARGET_HIT_Z,
   clamp,
 } from './game/const'
@@ -300,9 +302,9 @@ interface Shard {
 }
 const shards: Shard[] = []
 
-// --- Ramp state --- The right mouth (entryPoints[0]) is ours, the left is
-// theirs; whoever's mouth the ball enters arms THAT side's murderball, no matter
-// who knocked it in. rampDir +1 rides right→left (ours), -1 rides left→right.
+// --- Ramp state --- The right slot (SLOTS[0]) is ours, the left is theirs;
+// whoever's slot the ball enters arms THAT side's murderball, no matter who
+// knocked it in. rampDir +1 rides right→left (ours), -1 rides left→right.
 let onRamp = false
 let rampPhase = 0 // 0..1 fraction of the ramp traversed since entry
 let rampDir = 1
@@ -315,19 +317,19 @@ function tryEnterRamp() {
   if (onRamp || rampCooldown > 0) return
   const speed = Math.hypot(ball.vx, ball.vz)
   if (speed < 6) return
-  for (let i = 0; i < ramp.entryPoints.length; i++) {
-    const e = ramp.entryPoints[i]
-    const dx = ball.x - e.x
-    const dz = ball.z - e.z
+  for (let i = 0; i < SLOTS.length; i++) {
+    const s = SLOTS[i]
+    const dx = ball.x - s.x
+    const dz = ball.z - s.z
     if (dx * dx + dz * dz >= RAMP_CAPTURE_R * RAMP_CAPTURE_R) continue
-    // Owner must be feeding it AWAY from their own end: our right mouth (i=0,
-    // near/+z end) takes a ball heading −z; their left mouth takes one heading +z.
-    if (i === 0 && ball.vz >= 0) continue
-    if (i === 1 && ball.vz <= 0) continue
+    // The throat only swallows a ball travelling roughly along the slot axis,
+    // which for the owner means away from their own end. The guard blade turns
+    // most wrong-way balls back before they get here; this catches the rest.
+    if ((ball.vx * s.ax + ball.vz * s.az) / speed < RAMP_AIM_DOT) continue
     onRamp = true
     rampPhase = 0
     rampDir = i === 0 ? 1 : -1
-    rampOwner = i as 0 | 1
+    rampOwner = s.owner
     sfx.rampIn()
     return
   }
@@ -336,15 +338,18 @@ function tryEnterRamp() {
 function updateRamp(dt: number) {
   rampPhase += (RAMP_SPEED / rampLen) * dt
   if (rampPhase >= 1) {
-    // Reached the far mouth: launch toward the opponent's goal but deliberately
+    // Reached the far slot: launch toward the opponent's goal but deliberately
     // wide of the mouth, so the ball must bounce back before it can be scored.
-    const uEnd = rampDir > 0 ? 1 : 0
-    ramp.ride(uEnd, _cp)
-    ball.x = _cp.x
-    ball.z = _cp.z
+    const exit = SLOTS[rampDir > 0 ? 1 : 0]
+    ramp.ride(rampDir > 0 ? 1 : 0, _cp)
+    // Step clear of the wall face, along the slot axis, so the ball doesn't
+    // spawn inside the throat and immediately register a wall bounce.
+    const clear = BALL_R + 0.5
+    ball.x = _cp.x - exit.ax * clear
+    ball.z = _cp.z - exit.az * clear
     // Owner 0 attacks the far goal (−z); owner 1 attacks the near goal (+z).
     const goalZ = rampOwner === 0 ? -HALF_L : HALF_L
-    const aimX = RAMP_MISS // aim off-centre so it hits the end wall beside the mouth
+    const aimX = -exit.sx * RAMP_MISS // across court, wide of the mouth
     const dirX = aimX - ball.x
     const dirZ = goalZ - ball.z
     const inv = 1 / Math.hypot(dirX, dirZ)

@@ -23,19 +23,89 @@ export const MATCH_SECONDS = 120
 export const COLOR_ME = 0x2ad4ff
 export const COLOR_THEM = 0xff3ecb
 
-// Murderball ramp: an over-the-top arch linking a hole in each side wall. Enter
-// the RIGHT mouth (ours) or the LEFT mouth (theirs); ride up-over-down; exit the
-// far mouth boosted with murderball armed for the side you entered.
-export const RAMP_HOLE_Z = 6 // z of the right mouth (ours); left mouth is at -RAMP_HOLE_Z
+// Murderball ramp: an over-the-top arch linking a 45° slot in each side wall,
+// both at mid-court. Enter the RIGHT slot (ours) or the LEFT slot (theirs); ride
+// up-over-down; exit the far slot boosted, with murderball armed for the side
+// whose slot you entered.
+export const RAMP_MOUTH_Z = 0.4 // right mouth sits at z = -this, left mouth at +this
+export const RAMP_SLOT_HALF = 0.9 // slot half-width, measured ACROSS the 45° axis
+export const RAMP_FIN_LEN = 1.8 // how far the guard blade reaches into the court
+export const RAMP_FIN_T = 0.35 // guard blade thickness
+export const RAMP_AIM_DOT = 0.25 // how closely the ball must be aimed along the axis
 export const RAMP_CAPTURE_R = 1.6 // how close to a mouth to get sucked in
 export const RAMP_SPEED = 26 // travel speed along the rail
 export const RAMP_RELEASE_BOOST = 1.25 // exit speed multiplier
 export const RAMP_COOLDOWN = 1.5 // seconds before the ramp can grab the ball again
 export const RAMP_MISS = GOAL_HALF + 2 // exit aims this far off goal centre (needs a bounce to score)
 
-// Claim targets: two flanking each wall mouth (4 total). Claimed by the last
-// hitter's colour; the count in your colour is your multiplier on the next goal.
-export const TARGET_SEP = 3.2 // z-offset of each target either side of its mouth
+/**
+ * A murderball slot: the 45° break in one side wall.
+ *
+ * `a` (ax/az) is the slot axis, pointing OUT of the court — a ball must be
+ * travelling roughly along it to be taken by the ramp, which for the owner means
+ * "away from your own end". `n` (nx/nz) crosses the slot toward the chamfered
+ * jaw. The other jaw is the GUARD BLADE: a wall stub on the same 45° line that
+ * juts into the court, so a ball arriving from the wrong end is deflected back
+ * into play instead of being fed to the opponent's loop.
+ */
+export interface Slot {
+  owner: 0 | 1
+  sx: 1 | -1 // which side wall: +1 = right (ours), -1 = left (theirs)
+  x: number // mouth centre, on the wall face
+  z: number
+  ax: number // unit slot axis, out of the court (= the required entry direction)
+  az: number
+  nx: number // unit normal across the slot, toward the chamfered jaw
+  nz: number
+  zFin: number // wall-face z where the guard blade's jaw meets the wall
+  zOpen: number // wall-face z of the chamfered jaw
+  /** Guard blade centreline, court tip → buried end (a capsule for physics). */
+  fin: { x0: number; z0: number; x1: number; z1: number; r: number }
+}
+
+function makeSlot(owner: 0 | 1, sx: 1 | -1): Slot {
+  const q = Math.SQRT1_2
+  const x = sx * HALF_W
+  const z = -sx * RAMP_MOUTH_Z
+  const ax = sx * q
+  const az = -sx * q
+  const nx = -az // n = a rotated a quarter turn
+  const nz = ax
+  const span = RAMP_SLOT_HALF * Math.SQRT2 // a 45° cut elongates by √2 along the wall
+  const zFin = z - sx * span
+  const zOpen = z + sx * span
+  // The blade's slot-facing flank lies ON the jaw line, so its centreline is
+  // half a thickness back; it runs from FIN_LEN out in the court to WALL_T deep
+  // in the wall, where it meets the run's chamfer.
+  const off = RAMP_FIN_T / 2
+  return {
+    owner,
+    sx,
+    x,
+    z,
+    ax,
+    az,
+    nx,
+    nz,
+    zFin,
+    zOpen,
+    fin: {
+      x0: x - ax * RAMP_FIN_LEN - nx * off,
+      z0: zFin - az * RAMP_FIN_LEN - nz * off,
+      x1: x + ax * WALL_T - nx * off,
+      z1: zFin + az * WALL_T - nz * off,
+      r: off,
+    },
+  }
+}
+
+/** The two wall slots. [0] = right wall (ours), [1] = left wall (theirs). */
+export const SLOTS: Slot[] = [makeSlot(0, 1), makeSlot(1, -1)]
+
+// Claim targets: two evenly spaced either side of each wall slot (4 total).
+// Claimed by the last hitter's colour; the count in your colour is your
+// multiplier on the next goal.
+export const TARGET_SEP = 4.8 // z-offset of each target either side of its slot
 export const TARGET_HIT_Z = 1.6 // z tolerance for the ball claiming a target at the wall
 
 // Anti-trap: if the ball dwells in a corner (near a side AND an end wall) longer

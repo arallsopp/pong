@@ -11,7 +11,7 @@ import {
   Vector3,
 } from 'three'
 import { makeMetalMatcap } from './textures'
-import { BALL_R, COLOR_ME, COLOR_THEM, HALF_W, RAMP_HOLE_Z } from './const'
+import { BALL_R, COLOR_ME, COLOR_THEM, SLOTS, type Slot } from './const'
 
 export interface Ramp {
   group: Group
@@ -19,26 +19,25 @@ export interface Ramp {
   length: number
   /** Ball-centre position riding the rails at param u. */
   ride(u: number, out: Vector3): Vector3
-  /** The two wall mouths (table-plane x/z): [0] = right/ours (u=0), [1] = left/theirs (u=1). */
-  entryPoints: { x: number; z: number }[]
 }
 
-// --- Shape (tune here). Twin-wire pinball rail. It leaves a slot in the RIGHT
-// wall, corkscrews a full loop up the OUTSIDE of the wall, arcs over the top of
-// the table (apex at centre), then corkscrews a full loop down into a slot in
-// the LEFT wall. Point-symmetric → smooth Catmull-Rom, no kinks. ---
-const R = 2.6 // corkscrew radius (loops sit outside the side wall)
+// --- Shape (tune here). Twin-wire pinball rail. It leaves the 45° slot in the
+// RIGHT wall at mid-court, corkscrews up the OUTSIDE of the wall, arcs over the
+// top of the table (apex at centre), then corkscrews down into the mirrored slot
+// in the LEFT wall. Point-symmetric → smooth Catmull-Rom, no kinks. ---
+const R = 1.8 // corkscrew radius (loops sit just outside the side wall)
+const LOOP_TURNS = 1.625 // turns before heading inland; the extra ⅝ turn aims it at the apex
 const MOUTH_Y = BALL_R // mouth height = rolling-ball height for a seamless entry
-const CROSS_Y = 6.0 // height reached after one ascent loop (clears the 3.5 walls)
+const CROSS_Y = 6.0 // height reached at the end of the corkscrew (clears the 3.5 walls)
+const CLIMB_EASE = 1.7 // >1 front-loads the climb, so the turn that passes back over
+//                        the wall is already well clear of it
 const PEAK_Y = 8.2 // apex height over table centre
-const LOOP_PTS = 12 // control points per corkscrew loop (roundness)
+const CROSS_PULL = 0.45 // how far in from the corkscrew the arch's first point sits
+const LOOP_PTS = 12 // control points per full turn (roundness)
 const GAP = 1.1 // spacing between the two wires
 const RAIL_R = 0.12 // wire thickness
 const RIDE_LIFT = BALL_R * 0.6 // ball sits above the wires, nestled between them
 const N = 320
-
-const RIGHT_MOUTH = { x: HALF_W, z: RAMP_HOLE_Z }
-const LEFT_MOUTH = { x: -HALF_W, z: -RAMP_HOLE_Z }
 
 export function buildRamp(): Ramp {
   const cp = buildControlPoints()
@@ -71,9 +70,10 @@ export function buildRamp(): Ramp {
     group.add(new Mesh(tube, railMat))
   }
 
-  // Wall-mouth portals: dark disc (the slot) ringed in the owner's colour.
-  addPortal(group, RIGHT_MOUTH.x - 0.05, MOUTH_Y, RIGHT_MOUTH.z, -Math.PI / 2, COLOR_ME)
-  addPortal(group, LEFT_MOUTH.x + 0.05, MOUTH_Y, LEFT_MOUTH.z, Math.PI / 2, COLOR_THEM)
+  // Slot portals: a dark disc across the throat, ringed in the owner's colour,
+  // square to the 45° slot axis.
+  addPortal(group, SLOTS[0], COLOR_ME)
+  addPortal(group, SLOTS[1], COLOR_THEM)
 
   const ride = (u: number, out: Vector3): Vector3 => {
     const f = Math.max(0, Math.min(1, u)) * N
@@ -82,64 +82,70 @@ export function buildRamp(): Ramp {
     return out.lerpVectors(ridePoints[i0], ridePoints[i1], f - i0)
   }
 
-  return {
-    group,
-    curve,
-    length: curve.getLength(),
-    ride,
-    entryPoints: [{ ...RIGHT_MOUTH }, { ...LEFT_MOUTH }],
-  }
+  return { group, curve, length: curve.getLength(), ride }
 }
 
-/** Right ascent corkscrew → overhead crossover → left descent corkscrew. */
+/** Right ascent corkscrew → overhead crossover → mirrored left descent. */
 function buildControlPoints(): Vector3[] {
-  // Right corkscrew winds around a vertical axis just OUTSIDE the right wall, so
-  // its inner edge touches the wall (x = HALF_W) and never intrudes on the court.
-  const cx = HALF_W + R
+  const s = SLOTS[0] // ours, the right wall
+  // The corkscrew winds around a vertical axis one radius along the slot's cross
+  // normal, so the rail leaves the mouth travelling exactly along the slot axis
+  // — the ball flies straight in off the table with no corner to catch.
+  const cx = s.x + s.nx * R
+  const cz = s.z + s.nz * R
+  const steps = Math.round(LOOP_PTS * LOOP_TURNS)
+
   const ascent: Vector3[] = []
-  for (let k = 0; k <= LOOP_PTS; k++) {
-    const th = (k / LOOP_PTS) * Math.PI * 2
+  for (let k = 0; k <= steps; k++) {
+    const f = k / steps
+    const th = f * LOOP_TURNS * Math.PI * 2
     ascent.push(
       new Vector3(
-        cx - R * Math.cos(th), // k=0 → HALF_W (the wall mouth)
-        MOUTH_Y + (CROSS_Y - MOUTH_Y) * (k / LOOP_PTS),
-        RAMP_HOLE_Z - R * Math.sin(th), // tangent at k=0 points −z (into the ramp)
+        cx + R * (-s.nx * Math.cos(th) + s.ax * Math.sin(th)), // k=0 → the wall mouth
+        MOUTH_Y + (CROSS_Y - MOUTH_Y) * (1 - Math.pow(1 - f, CLIMB_EASE)),
+        cz + R * (-s.nz * Math.cos(th) + s.az * Math.sin(th)),
       ),
     )
   }
 
-  // Crossover: right-high → apex over centre → left-high.
+  // Crossover: corkscrew top → apex over centre → point-symmetric mirror.
+  const end = ascent[steps]
   const cross = [
-    new Vector3(HALF_W * 0.5, PEAK_Y * 0.98, RAMP_HOLE_Z * 0.5),
+    new Vector3(end.x * CROSS_PULL, PEAK_Y * 0.97, end.z * CROSS_PULL),
     new Vector3(0, PEAK_Y, 0),
-    new Vector3(-HALF_W * 0.5, PEAK_Y * 0.98, -RAMP_HOLE_Z * 0.5),
+    new Vector3(-end.x * CROSS_PULL, PEAK_Y * 0.97, -end.z * CROSS_PULL),
   ]
 
-  // Left descent = point-symmetric mirror of the ascent (x,z → −x,−z), reversed
-  // so it runs high → low into the left mouth. Skip k=0 (it's the crossover end).
+  // Left descent = the ascent mirrored through the table centre (x,z → −x,−z)
+  // and reversed, so it runs high → low into the left mouth.
   const descent: Vector3[] = []
-  for (let k = 1; k <= LOOP_PTS; k++) {
-    const a = ascent[LOOP_PTS - k]
+  for (let k = steps; k >= 0; k--) {
+    const a = ascent[k]
     descent.push(new Vector3(-a.x, a.y, -a.z))
   }
 
   return [...ascent, ...cross, ...descent]
 }
 
-function addPortal(group: Group, x: number, y: number, z: number, facing: number, color: number) {
+function addPortal(group: Group, s: Slot, color: number) {
+  const yaw = Math.atan2(s.ax, s.az) // disc normal → the slot axis
+  // Sit the portal a touch inside the throat so it can't z-fight the wall runs.
+  const x = s.x - s.ax * 0.05
+  const z = s.z - s.az * 0.05
+
   const disc = new Mesh(
     new CircleGeometry(0.95, 24),
     new MeshBasicMaterial({ color: 0x05070a, side: DoubleSide }),
   )
-  disc.rotation.y = facing
-  disc.position.set(x, y, z)
+  disc.rotation.y = yaw
+  disc.position.set(x, MOUTH_Y, z)
   group.add(disc)
 
   const ring = new Mesh(
     new RingGeometry(0.95, 1.25, 24),
     new MeshBasicMaterial({ color, side: DoubleSide, transparent: true, opacity: 0.9 }),
   )
-  ring.rotation.y = facing
-  ring.position.set(x, y, z)
+  ring.rotation.y = yaw
+  ring.position.set(x, MOUTH_Y, z)
   group.add(ring)
 }

@@ -6,7 +6,7 @@ import {
   MeshBasicMaterial,
   RingGeometry,
 } from 'three'
-import { COLOR_ME, COLOR_THEM, HALF_W, RAMP_HOLE_Z, TARGET_SEP, WALL_H } from './const'
+import { COLOR_ME, COLOR_THEM, SLOTS, TARGET_SEP, WALL_H } from './const'
 
 const RING = 0x9fb4cc // always-visible steel outline so empty targets read clearly
 const EMPTY = 0x0a0d12 // near-black fill when unclaimed
@@ -29,21 +29,18 @@ export interface Targets {
 }
 
 /**
- * Four claim targets: two flanking each wall mouth. All start black with a
- * visible steel ring; hitting one lights it your colour. It's not tug-of-war —
- * you light up as many as you can, and your count is your multiplier when you
- * next score, after which they all reset.
+ * Four claim targets: two evenly spaced either side of each wall slot. All start
+ * black with a visible steel ring; hitting one lights it your colour. It's not
+ * tug-of-war — you light up as many as you can, and your count is your multiplier
+ * when you next score, after which they all reset.
  */
 export function buildTargets(): Targets {
   const group = new Group()
 
-  // Right wall (ours) flanks the +z mouth; left wall (theirs) flanks the −z mouth.
-  const layout: { x: number; z: number }[] = [
-    { x: HALF_W - 0.06, z: RAMP_HOLE_Z - TARGET_SEP },
-    { x: HALF_W - 0.06, z: RAMP_HOLE_Z + TARGET_SEP },
-    { x: -HALF_W + 0.06, z: -RAMP_HOLE_Z + TARGET_SEP },
-    { x: -HALF_W + 0.06, z: -RAMP_HOLE_Z - TARGET_SEP },
-  ]
+  const layout: { x: number; z: number }[] = SLOTS.flatMap((s) => [
+    { x: s.x - s.sx * 0.06, z: s.z - TARGET_SEP },
+    { x: s.x - s.sx * 0.06, z: s.z + TARGET_SEP },
+  ])
 
   const fills: Mesh[] = []
   const claims: (0 | 1 | null)[] = layout.map(() => null)

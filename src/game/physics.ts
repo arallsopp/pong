@@ -4,6 +4,7 @@ import {
   GOAL_HALF,
   HALF_L,
   HALF_W,
+  SLOTS,
 } from './const'
 
 /** A circle on the table plane with a velocity. */
@@ -53,6 +54,13 @@ export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
     wall = true
   }
 
+  // Guard blades: the stubs jutting into the court beside each murderball slot.
+  // A ball travelling the owner's way slides along the blade into the throat; one
+  // arriving from the wrong end hits the other flank and is turned back into play.
+  for (const s of SLOTS) {
+    if (collideBlade(ball, s.fin)) wall = true
+  }
+
   // End walls, with the goal mouth left open.
   const maxZ = HALF_L - ball.r
   const inMouth = Math.abs(ball.x) < GOAL_HALF
@@ -91,6 +99,43 @@ export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
 
   clampSpeed(ball)
   return { goal: null, hitIndex, wall, phasedIndex }
+}
+
+/** Bounce off a static capsule (a line segment with a radius) on the table plane. */
+function collideBlade(
+  ball: Body,
+  seg: { x0: number; z0: number; x1: number; z1: number; r: number },
+): boolean {
+  const ex = seg.x1 - seg.x0
+  const ez = seg.z1 - seg.z0
+  const len2 = ex * ex + ez * ez
+  // Closest point on the segment to the ball centre.
+  let t = ((ball.x - seg.x0) * ex + (ball.z - seg.z0) * ez) / len2
+  t = t < 0 ? 0 : t > 1 ? 1 : t
+  const px = seg.x0 + ex * t
+  const pz = seg.z0 + ez * t
+
+  let dx = ball.x - px
+  let dz = ball.z - pz
+  const rr = ball.r + seg.r
+  let d = Math.hypot(dx, dz)
+  if (d >= rr) return false
+  if (d === 0) {
+    // Dead centre: push out square to the blade rather than dividing by zero.
+    dx = -ez
+    dz = ex
+    d = Math.hypot(dx, dz)
+  }
+  const nx = dx / d
+  const nz = dz / d
+  ball.x = px + nx * rr
+  ball.z = pz + nz * rr
+  const vn = ball.vx * nx + ball.vz * nz
+  if (vn < 0) {
+    ball.vx -= 2 * vn * nx
+    ball.vz -= 2 * vn * nz
+  }
+  return true
 }
 
 /** Elastic circle-circle response; a moving paddle transfers its velocity. */
