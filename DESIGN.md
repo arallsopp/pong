@@ -10,19 +10,22 @@ top. Score into their goal; most goals when the clock runs out wins.
 
 ## View & render
 
-- **3D scene, fixed tilted-top-down camera.** Portrait. Our goal near/bottom
-  (+z), theirs far/top (-z).
-- **Full-screen pixelation.** The scene renders to a low internal resolution and
-  is nearest-upscaled to the display, so edges, motion and the ball all read as
-  genuinely 16-bit. Textures use NearestFilter, materials are unlit/flat.
+- **3D scene, fixed perspective camera** (table reads as a trapezoid). Portrait.
+  Our goal near/bottom (+z), theirs far/top (-z).
+- **16-bit look via bitmap textures, not pixelation.** Full-resolution render;
+  NearestFilter bitmap textures on smooth geometry + a chrome matcap for metal.
+  (Full-screen low-res pixelation was tried and abandoned — it made the round
+  ball blocky.)
 
 ## Art direction
 
 Reference: Bitmap Brothers / Speedball 2.
-- **Floor:** metal blue, rivet dot-grid, a large lavender 5-point star, a green
-  center line, a center face-off circle + square.
+- **Floor:** metal blue, rivet dot-grid, a large lavender 5-point star, an
+  embossed center line + face-off circle, amber goal mouths.
 - **HUD:** amber pixel font on a steel panel ("MATCH OVER / SCORE 010 TO 022").
-- **Paddles:** flat discs. Ours blue, theirs orange (echoing the reference).
+  (Currently CSS monospace; real pixel-font panel is a TODO.)
+- **Paddles:** short metal blue-grey cylinders. Identity is by position (bottom
+  = us), not loud team colors.
 
 ## Physics
 
@@ -52,34 +55,44 @@ your side; the opponent nudges it back and then toward theirs. Whoever the
 pointer favors adds that many bonus points to each goal they score (max +2).
 
 ### Central ramp & murderball
-One shared, **bidirectional** ramp near center that either side can feed via a
-small entry target. A successful entry sends the ball up a rail with real
-elevation gain and a vertical **loop**, through a **player-timed accelerator
-flipper** at the top, and back down onto the table.
+A shared, **bidirectional** rail near center. Its shape (from the user's
+top-down drawing) is an **open S-curve with a ~1-turn spiral at each end**; the
+spirals bulge **out past the side walls**, and the two free inner tips (near
+center) are the entry/exit mouths. It's lifted into 3D — low at the tips, up
+onto a plateau (clearing the walls), peaking over the table center — so the ball
+goes up and over. Built as **two banked rods a fixed distance apart** with the
+ball riding **on top** like a marble; corners bank for (fake) centripetal hold.
 
-- The accelerator is a flipper you tap as the ball arrives. Good timing → boost
-  and the loop **counts**. A miss → weak return and the loop does **not** count.
-- Complete **3 loops** to arm **murderball**: the next ~8 seconds the ball
-  **phases through the opponent's paddle** (timed unstoppable window). The clock
-  adds pressure and it can fizzle.
-- Symmetric: the AI can charge and arm murderball the same way.
+- Entry only fires when the ball approaches a tip **roughly parallel** to the
+  rails (else it passes through the mouth).
+- Planned: a **player-timed accelerator flipper** at the apex. Good timing →
+  boost + the loop **counts**; a miss → weak return, loop doesn't count.
+- Planned: complete **3 loops** to arm **murderball** → **~8 s unstoppable
+  window** (ball phases through the opponent's paddle).
+- Intended symmetric: the AI can charge murderball the same way.
+
+### Gun pickup (added mechanic)
+Gun tokens appear randomly. **Cover a gun with your paddle, then lift your
+finger to fire** a bolt up-court; it **freezes the opponent's paddle for 3 s**
+(a sitting duck to score on). Intended symmetric for the AI later.
 
 ## Match
 
-Timed period (e.g. 120 s). Most goals — counting multipliers — wins. Ends on a
+Timed period (120 s). Most goals — counting multipliers — wins. Ends on a
 "MATCH OVER" banner with the final score.
 
-## Build order
+## Implementation status
 
-1. **Table foundation (this slice):** pixel-art floor, walls, goals, ball, two
-   paddles, direct-drag control, AI, timed scoring, full-screen pixelation.
-2. Ramp geometry + entry target + accelerator flipper + loop counting.
-3. Tug-of-war stars.
-4. Murderball window + VFX.
-5. Amber pixel-font scoreboard panel, SFX, PWA/offline, haptics.
+See `CLAUDE.md` for the authoritative, current "what works / what's stubbed"
+list and the file map. In brief: table + air-hockey + timed scoring + tug-of-war
+stars + ramp geometry & ride + gun mechanic are in; the accelerator flipper,
+loop-counting → murderball window, AI symmetry, and presentation/PWA polish are
+not yet built. The ramp currently just auto-boosts on exit.
 
-## Open questions
+## Resolved since first draft
 
-- Exact camera tilt/height to fill portrait nicely (tune once running).
-- Ramp geometry: how the bidirectional loop reads from a fixed top-down camera.
-- Whether the ball needs a puck-like look or stays a sphere.
+- Camera: fixed **3D perspective** (not top-down) — the table reads as a
+  trapezoid so the ramp loops rise off it.
+- Rendering: full-res with nearest-filtered bitmap textures + chrome matcap;
+  full-screen pixelation was tried and **abandoned**.
+- Ball: stays a round chrome **sphere** (matcap), with an altitude-aware shadow.

@@ -17,13 +17,19 @@ export interface Body {
 
 export type GoalSide = 'near' | 'far' | null
 
+export interface StepResult {
+  goal: GoalSide
+  /** Index of the paddle that struck the ball this step, or -1. */
+  hitIndex: number
+}
+
 /**
  * Advance the ball one substep: move, resolve side/end walls (leaving the goal
- * mouths open), resolve paddle collisions, and clamp speed. Returns which goal
- * the ball fully entered this step, if any. 'near' = our goal (opponent scores),
- * 'far' = their goal (we score).
+ * mouths open), resolve paddle collisions, and clamp speed. 'near' = our goal
+ * (opponent scores), 'far' = their goal (we score). hitIndex reports which
+ * paddle touched the ball this step (for possession).
  */
-export function stepBall(ball: Body, dt: number, paddles: Body[]): GoalSide {
+export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
   ball.x += ball.vx * dt
   ball.z += ball.vz * dt
 
@@ -42,33 +48,36 @@ export function stepBall(ball: Body, dt: number, paddles: Body[]): GoalSide {
   const inMouth = Math.abs(ball.x) < GOAL_HALF
   if (ball.z > maxZ) {
     if (inMouth) {
-      if (ball.z > HALF_L + ball.r) return 'near'
+      if (ball.z > HALF_L + ball.r) return { goal: 'near', hitIndex: -1 }
     } else {
       ball.z = maxZ
       ball.vz = -Math.abs(ball.vz)
     }
   } else if (ball.z < -maxZ) {
     if (inMouth) {
-      if (ball.z < -HALF_L - ball.r) return 'far'
+      if (ball.z < -HALF_L - ball.r) return { goal: 'far', hitIndex: -1 }
     } else {
       ball.z = -maxZ
       ball.vz = Math.abs(ball.vz)
     }
   }
 
-  for (const p of paddles) collidePaddle(ball, p)
+  let hitIndex = -1
+  for (let i = 0; i < paddles.length; i++) {
+    if (collidePaddle(ball, paddles[i])) hitIndex = i
+  }
 
   clampSpeed(ball)
-  return null
+  return { goal: null, hitIndex }
 }
 
 /** Elastic circle-circle response; a moving paddle transfers its velocity. */
-function collidePaddle(ball: Body, p: Body) {
+function collidePaddle(ball: Body, p: Body): boolean {
   const dx = ball.x - p.x
   const dz = ball.z - p.z
   const rr = ball.r + p.r
   const d2 = dx * dx + dz * dz
-  if (d2 >= rr * rr || d2 === 0) return
+  if (d2 >= rr * rr || d2 === 0) return false
 
   const d = Math.sqrt(d2)
   const nx = dx / d
@@ -87,6 +96,7 @@ function collidePaddle(ball: Body, p: Body) {
     ball.vx -= 2 * vn * nx
     ball.vz -= 2 * vn * nz
   }
+  return true
 }
 
 function clampSpeed(ball: Body) {

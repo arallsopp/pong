@@ -32,6 +32,8 @@ import {
 } from './game/const'
 import { buildTable } from './game/table'
 import { buildRamp } from './game/ramp'
+import { buildStars } from './game/stars'
+import { GUN_R, SHOT_SPEED, DISABLE_SECONDS, makeGunMesh, makeShotMesh } from './game/guns'
 import { stepBall, type Body } from './game/physics'
 
 const app = document.getElementById('app')!
@@ -51,6 +53,8 @@ scene.background = new Color(0x1b2430)
 scene.add(buildTable())
 const ramp = buildRamp()
 scene.add(ramp.group)
+const stars = buildStars()
+scene.add(stars.group)
 
 // 3D perspective view (table reads as a trapezoid, far end narrower). Lower and
 // further back than a top-down cam so the ramp loops rise off the table. Nudge
@@ -120,7 +124,10 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
 renderer.domElement.addEventListener('pointermove', (e) => {
   if (pointerActive) updatePointer(e)
 })
-renderer.domElement.addEventListener('pointerup', () => (pointerActive = false))
+renderer.domElement.addEventListener('pointerup', () => {
+  pointerActive = false
+  fireGun() // releasing while the paddle covers a gun fires it
+})
 renderer.domElement.addEventListener('pointercancel', () => (pointerActive = false))
 
 // --- Match state ---
@@ -128,6 +135,26 @@ let scorePlayer = 0
 let scoreAI = 0
 let timeLeft = MATCH_SECONDS
 let over = false
+
+// Tug-of-war multiplier: possession = last paddle to touch the ball.
+let possession: 0 | 1 | null = null
+let balance = 0 // −2..+2, positive favours us
+let wasAtLeftWall = false
+
+// --- Weapons: pick up a gun with the paddle, release to fire ---
+interface Gun {
+  x: number
+  z: number
+  mesh: Mesh
+}
+interface Shot {
+  z: number
+  mesh: Mesh
+}
+const guns: Gun[] = []
+const shots: Shot[] = []
+let gunTimer = 5
+let aiDisabled = 0 // seconds the AI paddle stays frozen
 
 // --- Ramp state ---
 let onRamp = false
@@ -140,17 +167,25 @@ const _tan = new Vector3()
 
 function tryEnterRamp() {
   if (onRamp || rampCooldown > 0) return
-  if (Math.hypot(ball.vx, ball.vz) < 6) return
+  const speed = Math.hypot(ball.vx, ball.vz)
+  if (speed < 6) return
+  const vnx = ball.vx / speed
+  const vnz = ball.vz / speed
   for (let i = 0; i < ramp.entryPoints.length; i++) {
     const e = ramp.entryPoints[i]
     const dx = ball.x - e.x
     const dz = ball.z - e.z
-    if (dx * dx + dz * dz < RAMP_CAPTURE_R * RAMP_CAPTURE_R) {
-      onRamp = true
-      rampPhase = 0
-      rampDir = i === 0 ? 1 : -1
-      return
-    }
+    if (dx * dx + dz * dz >= RAMP_CAPTURE_R * RAMP_CAPTURE_R) continue
+    // Only capture when the ball is moving roughly parallel INTO the rails at
+    // this tip — so a ball crossing the mouth sideways isn't swallowed.
+    const sign = i === 0 ? 1 : -1
+    ramp.curve.getTangent(i === 0 ? 0 : 1, _tan).multiplyScalar(sign)
+    const al = Math.hypot(_tan.x, _tan.z) || 1
+    if ((vnx * _tan.x + vnz * _tan.z) / al < 0.7) continue // ~45° tolerance
+    onRamp = true
+    rampPhase = 0
+    rampDir = sign
+    return
   }
 }
 
@@ -189,7 +224,8 @@ function serve(toward: number) {
   ball.vz = toward * Math.abs(Math.cos(ang) * BALL_START_SPEED)
   ballY = BALL_R
   onRamp = false
-  rampCooldown = 1.0 // don't let the central ramp grab the ball at kickoff
+  possession = null
+  rampCooldown = 1.0 // don't let the ramp grab the ball at kickoff
 }
 serve(Math.random() < 0.5 ? 1 : -1)
 
@@ -219,24 +255,97 @@ function updateAI(dt: number) {
 
 function update(dt: number) {
   moveBody(player, targetX, targetZ, PLAYER_MAX_SPEED, dt)
-  updateAI(dt)
+  if (aiDisabled > 0) {
+    aiDisabled -= dt
+    ai.vx = 0
+    ai.vz = 0
+  } else {
+    updateAI(dt)
+  }
   if (rampCooldown > 0) rampCooldown -= dt
+  updateWeapons(dt)
 
   if (onRamp) {
     updateRamp(dt) // ball is on the rail; 2D physics suspended
     return
   }
 
-  const goal = stepBall(ball, dt, [player, ai])
-  if (goal === 'near') {
-    scoreAI++
+  const res = stepBall(ball, dt, [player, ai])
+  if (res.hitIndex === 0) possession = 0
+  else if (res.hitIndex === 1) possession = 1
+
+  if (res.goal === 'near') {
+    scoreAI += 1 + (balance < 0 ? -balance : 0) // opponent's multiplier
     serve(-1)
-  } else if (goal === 'far') {
-    scorePlayer++
-    serve(1)
-  } else {
-    tryEnterRamp()
+    return
   }
+  if (res.goal === 'far') {
+    scorePlayer += 1 + (balance > 0 ? balance : 0) // our multiplier
+    serve(1)
+    return
+  }
+
+  checkStarHit()
+  tryEnterRamp()
+}
+
+// Tug-of-war: when the ball (owned by someone) strikes a star on the left wall,
+// nudge the balance toward the owner's side.
+function checkStarHit() {
+  const atLeft = ball.x <= -(HALF_W - BALL_R) + 0.06
+  if (atLeft && !wasAtLeftWall && possession !== null) {
+    for (const p of stars.positions) {
+      if (Math.abs(ball.z - p.z) < 1.7) {
+        balance = clamp(balance + (possession === 0 ? 1 : -1), -2, 2)
+        stars.setBalance(balance)
+        break
+      }
+    }
+  }
+  wasAtLeftWall = atLeft
+}
+
+function updateWeapons(dt: number) {
+  gunTimer -= dt
+  if (gunTimer <= 0 && guns.length === 0) {
+    spawnGun()
+    gunTimer = 7 + Math.random() * 6
+  }
+  for (let i = shots.length - 1; i >= 0; i--) {
+    const s = shots[i]
+    s.z -= SHOT_SPEED * dt
+    s.mesh.position.z = s.z
+    if (s.z <= ai.z) {
+      aiDisabled = DISABLE_SECONDS
+      scene.remove(s.mesh)
+      shots.splice(i, 1)
+    } else if (s.z < -HALF_L) {
+      scene.remove(s.mesh)
+      shots.splice(i, 1)
+    }
+  }
+}
+
+function spawnGun() {
+  const x = (Math.random() * 2 - 1) * (HALF_W - 2.5)
+  const z = 2 + Math.random() * (HALF_L - 4) // our half, reachable by the paddle
+  const mesh = makeGunMesh()
+  mesh.position.set(x, 0.12, z)
+  scene.add(mesh)
+  guns.push({ x, z, mesh })
+}
+
+function fireGun() {
+  const idx = guns.findIndex(
+    (g) => (g.x - player.x) ** 2 + (g.z - player.z) ** 2 < (PAD_R + GUN_R) ** 2,
+  )
+  if (idx < 0) return
+  scene.remove(guns[idx].mesh)
+  guns.splice(idx, 1)
+  const mesh = makeShotMesh()
+  mesh.position.set(player.x, 0.5, player.z)
+  scene.add(mesh)
+  shots.push({ z: player.z, mesh })
 }
 
 function frame() {
@@ -268,11 +377,22 @@ function frame() {
   ;(ballShadow.material as MeshBasicMaterial).opacity = clamp(0.55 - alt * 0.03, 0.12, 0.55)
   playerMesh.position.set(player.x, PADDLE_H / 2, player.z)
   aiMesh.position.set(ai.x, PADDLE_H / 2, ai.z)
+  // AI flashes red while disabled by a shot.
+  ;(aiMesh.material as MeshMatcapMaterial).color.set(aiDisabled > 0 ? 0xd23b3b : 0x7d8ea3)
+  // Highlight a gun the paddle is hovering (ready to fire on release).
+  for (const g of guns) {
+    const over = (g.x - player.x) ** 2 + (g.z - player.z) ** 2 < (PAD_R + GUN_R) ** 2
+    g.mesh.scale.setScalar(over ? 1.3 : 1)
+  }
 
   const mm = Math.floor(timeLeft / 60)
   const ss = Math.floor(timeLeft % 60)
   scoreEl.textContent = `${pad(scorePlayer)}   ${mm}:${String(ss).padStart(2, '0')}   ${pad(scoreAI)}`
-  debugEl.textContent = `|v| ${Math.hypot(ball.vx, ball.vz).toFixed(0)}`
+  const bal = balance > 0 ? `+${balance} us` : balance < 0 ? `${-balance} them` : 'even'
+  debugEl.textContent =
+    `|v| ${Math.hypot(ball.vx, ball.vz).toFixed(0)}  mult ${bal}` +
+    (aiDisabled > 0 ? `  AI OUT ${aiDisabled.toFixed(1)}` : '') +
+    (guns.length ? '  GUN!' : '')
 
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
