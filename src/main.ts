@@ -14,13 +14,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three'
-import {
-  AI_PAL,
-  PLAYER_PAL,
-  makeMetalMatcap,
-  makePaddleTexture,
-  makeShadowTexture,
-} from './game/textures'
+import { makeMetalMatcap, makeShadowTexture } from './game/textures'
 import {
   AI_MAX_SPEED,
   BALL_R,
@@ -58,20 +52,24 @@ scene.add(buildTable())
 const ramp = buildRamp()
 scene.add(ramp.group)
 
-// Fixed, steep top-down camera raised high so the portrait table fills the
-// screen. Nudge CAM_Y (height) and CAM_Z (tilt/back-off) to reframe.
-const CAM_Y = 52
-const CAM_Z = 15
-const camera = new PerspectiveCamera(44, 1, 0.1, 200)
+// 3D perspective view (table reads as a trapezoid, far end narrower). Lower and
+// further back than a top-down cam so the ramp loops rise off the table. Nudge
+// CAM_Y (height) / CAM_Z (back-off) / the lookAt to reframe.
+const CAM_Y = 30
+const CAM_Z = 26
+const camera = new PerspectiveCamera(50, 1, 0.1, 200)
 camera.position.set(0, CAM_Y, CAM_Z)
-camera.lookAt(0, 0, 0)
+camera.lookAt(0, 1, -2)
 
-// --- Ball: round, high-res, chrome (matcap so it needs no lights) ---
+// Shared chrome matcap (needs no lights) for the ball and paddles.
+const metalMatcap = makeMetalMatcap()
+
+// --- Ball: round, high-res, chrome ---
 const ball: Body = { x: 0, z: 0, vx: 0, vz: 0, r: BALL_R }
 let ballY = BALL_R // altitude, only leaves BALL_R while on the ramp
 const ballMesh = new Mesh(
   new SphereGeometry(BALL_R, 48, 32),
-  new MeshMatcapMaterial({ matcap: makeMetalMatcap() }),
+  new MeshMatcapMaterial({ matcap: metalMatcap }),
 )
 scene.add(ballMesh)
 
@@ -83,20 +81,18 @@ const ballShadow = new Mesh(
 ballShadow.rotation.x = -Math.PI / 2
 scene.add(ballShadow)
 
-// --- Paddles (flat discs, textured metal) ---
-function makePaddle(pal: typeof PLAYER_PAL): Mesh {
-  const tex = makePaddleTexture(pal)
-  const mats = [
-    new MeshBasicMaterial({ color: pal.dark }), // side
-    new MeshBasicMaterial({ map: tex }), // top cap
-    new MeshBasicMaterial({ map: tex }), // bottom cap
-  ]
-  return new Mesh(new CylinderGeometry(PAD_R, PAD_R, 0.5, 48), mats)
+// --- Paddles: short metal blue-grey cylinders ---
+const PADDLE_H = 0.85
+function makePaddle(tint: number): Mesh {
+  return new Mesh(
+    new CylinderGeometry(PAD_R, PAD_R, PADDLE_H, 48),
+    new MeshMatcapMaterial({ matcap: metalMatcap, color: tint }),
+  )
 }
 const player: Body = { x: 0, z: HALF_L * 0.6, vx: 0, vz: 0, r: PAD_R }
 const ai: Body = { x: 0, z: -HALF_L * 0.6, vx: 0, vz: 0, r: PAD_R }
-const playerMesh = makePaddle(PLAYER_PAL)
-const aiMesh = makePaddle(AI_PAL)
+const playerMesh = makePaddle(0x9fb4cc) // lighter steel-blue (ours, bottom)
+const aiMesh = makePaddle(0x7d8ea3) // steel-grey (theirs, top)
 scene.add(playerMesh, aiMesh)
 
 // --- Direct touch-drag: raycast pointer to the table plane ---
@@ -135,45 +131,38 @@ let over = false
 
 // --- Ramp state ---
 let onRamp = false
-let rampT = 0 // 0..1 along ramp.curve
-let rampDir = 1 // +1 travels t 0→1, -1 travels 1→0
+let rampPhase = 0 // 0..1 fraction of the ramp traversed since entry
+let rampDir = 1 // +1 enters at tip A (u:0→1), -1 enters at tip A' (u:1→0)
 let rampCooldown = 0
-const rampLen = ramp.curve.getLength()
+const rampLen = ramp.length
 const _cp = new Vector3()
 const _tan = new Vector3()
 
-function tryEnterRamp(): boolean {
-  if (onRamp || rampCooldown > 0) return false
-  const dxN = ball.x
-  const dzN = ball.z - ramp.entryZ
-  const dxF = ball.x
-  const dzF = ball.z + ramp.entryZ
-  const speed = Math.hypot(ball.vx, ball.vz)
-  if (speed < 6) return false
-  if (dxN * dxN + dzN * dzN < RAMP_CAPTURE_R * RAMP_CAPTURE_R) {
-    onRamp = true
-    rampT = 0
-    rampDir = 1
-    return true
+function tryEnterRamp() {
+  if (onRamp || rampCooldown > 0) return
+  if (Math.hypot(ball.vx, ball.vz) < 6) return
+  for (let i = 0; i < ramp.entryPoints.length; i++) {
+    const e = ramp.entryPoints[i]
+    const dx = ball.x - e.x
+    const dz = ball.z - e.z
+    if (dx * dx + dz * dz < RAMP_CAPTURE_R * RAMP_CAPTURE_R) {
+      onRamp = true
+      rampPhase = 0
+      rampDir = i === 0 ? 1 : -1
+      return
+    }
   }
-  if (dxF * dxF + dzF * dzF < RAMP_CAPTURE_R * RAMP_CAPTURE_R) {
-    onRamp = true
-    rampT = 1
-    rampDir = -1
-    return true
-  }
-  return false
 }
 
 function updateRamp(dt: number) {
-  rampT += rampDir * (RAMP_SPEED / rampLen) * dt
-  if (rampT <= 0 || rampT >= 1) {
-    // Release at the far mouth along the exit tangent (auto accelerator boost).
-    const exitT = rampDir > 0 ? 1 : 0
-    ramp.curve.getPoint(exitT, _cp)
-    ramp.curve.getTangent(exitT, _tan).multiplyScalar(rampDir)
+  rampPhase += (RAMP_SPEED / rampLen) * dt
+  if (rampPhase >= 1) {
+    // Reached the far tip: release along the exit tangent with a boost.
+    const uEnd = rampDir > 0 ? 1 : 0
+    ramp.ride(uEnd, _cp)
+    ramp.curve.getTangent(uEnd, _tan).multiplyScalar(rampDir)
     const dir = new Vector2(_tan.x, _tan.z)
-    if (dir.lengthSq() < 1e-6) dir.set(0, rampDir > 0 ? -1 : 1)
+    if (dir.lengthSq() < 1e-6) dir.set(0, 1)
     dir.normalize()
     const speed = BALL_START_SPEED * RAMP_RELEASE_BOOST
     ball.x = _cp.x
@@ -185,7 +174,8 @@ function updateRamp(dt: number) {
     rampCooldown = RAMP_COOLDOWN
     return
   }
-  ramp.curve.getPoint(rampT, _cp)
+  const u = rampDir > 0 ? rampPhase : 1 - rampPhase
+  ramp.ride(u, _cp)
   ball.x = _cp.x
   ball.z = _cp.z
   ballY = _cp.y
@@ -197,6 +187,9 @@ function serve(toward: number) {
   const ang = (Math.random() - 0.5) * 1.0
   ball.vx = Math.sin(ang) * BALL_START_SPEED
   ball.vz = toward * Math.abs(Math.cos(ang) * BALL_START_SPEED)
+  ballY = BALL_R
+  onRamp = false
+  rampCooldown = 1.0 // don't let the central ramp grab the ball at kickoff
 }
 serve(Math.random() < 0.5 ? 1 : -1)
 
@@ -273,8 +266,8 @@ function frame() {
   const s = 1 + alt * 0.07
   ballShadow.scale.set(s, s, s)
   ;(ballShadow.material as MeshBasicMaterial).opacity = clamp(0.55 - alt * 0.03, 0.12, 0.55)
-  playerMesh.position.set(player.x, 0.25, player.z)
-  aiMesh.position.set(ai.x, 0.25, ai.z)
+  playerMesh.position.set(player.x, PADDLE_H / 2, player.z)
+  aiMesh.position.set(ai.x, PADDLE_H / 2, ai.z)
 
   const mm = Math.floor(timeLeft / 60)
   const ss = Math.floor(timeLeft % 60)
