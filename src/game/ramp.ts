@@ -1,4 +1,6 @@
 import {
+  BufferAttribute,
+  BufferGeometry,
   CatmullRomCurve3,
   CircleGeometry,
   DoubleSide,
@@ -11,7 +13,7 @@ import {
   Vector3,
 } from 'three'
 import { makeMetalMatcap } from './textures'
-import { BALL_R, COLOR_ME, COLOR_THEM, SLOTS, type Slot } from './const'
+import { BALL_R, COLOR_ME, COLOR_THEM, HALF_L, HALF_W, SLOTS, type Slot } from './const'
 
 export interface Ramp {
   group: Group
@@ -38,6 +40,17 @@ const GAP = 1.1 // spacing between the two wires
 const RAIL_R = 0.12 // wire thickness
 const RIDE_LIFT = BALL_R * 0.6 // ball sits above the wires, nestled between them
 const N = 320
+
+// --- Rail shadow (tune here). The scene is unlit, so this is a projected
+// ribbon rather than a shadow map: the rail pair dropped straight down onto the
+// floor, spreading and fading with height exactly like the ball's blob shadow,
+// and faded out where the rail leaves the table and there's nothing to fall on. ---
+const SHADOW_Y = 0.02 // sits under the ball (0.05) and paddle (0.04) shadows
+const SHADOW_SPREAD = 0.055 // extra width per unit of height
+const SHADOW_DARK = 0.5 // opacity directly beneath the rail at table height
+const SHADOW_FADE = 0.05 // opacity lost per unit of height
+const SHADOW_MIN = 0.1 // never fade away entirely, even at the apex
+const SHADOW_EDGE = 0.6 // fade to nothing over this distance at the table edge
 
 export function buildRamp(): Ramp {
   const cp = buildControlPoints()
@@ -69,6 +82,8 @@ export function buildRamp(): Ramp {
     const tube = new TubeGeometry(new CatmullRomCurve3(rail, false), N, RAIL_R, 8, false)
     group.add(new Mesh(tube, railMat))
   }
+
+  group.add(buildShadow(railL, railR))
 
   // Slot portals: a dark disc across the throat, ringed in the owner's colour,
   // square to the 45° slot axis.
@@ -125,6 +140,76 @@ function buildControlPoints(): Vector3[] {
   }
 
   return [...ascent, ...cross, ...descent]
+}
+
+/**
+ * Drop the rail pair straight down onto the floor as one long ribbon. Width comes
+ * from the real horizontal span of the two wires (so it narrows wherever they
+ * tilt), then spreads with height; alpha fades with height and dies off at the
+ * table edge, where the rail is out over the void and casts on nothing.
+ */
+function buildShadow(railL: Vector3[], railR: Vector3[]): Mesh {
+  const pos = new Float32Array((N + 1) * 2 * 3)
+  const col = new Float32Array((N + 1) * 2 * 4)
+  const idx: number[] = []
+
+  for (let i = 0; i <= N; i++) {
+    const l = railL[i]
+    const r = railR[i]
+    const mx = (l.x + r.x) / 2
+    const mz = (l.z + r.z) / 2
+    const y = (l.y + r.y) / 2
+
+    // Horizontal offset from the rail centreline out to each wire.
+    let dx = (l.x - r.x) / 2
+    let dz = (l.z - r.z) / 2
+    const span = Math.hypot(dx, dz) || 1
+    const half = (span + RAIL_R) * (1 + y * SHADOW_SPREAD)
+    dx = (dx / span) * half
+    dz = (dz / span) * half
+
+    const alpha = Math.min(SHADOW_DARK, Math.max(SHADOW_MIN, SHADOW_DARK - y * SHADOW_FADE))
+    for (const [k, sgn] of [
+      [0, 1],
+      [1, -1],
+    ] as const) {
+      const x = mx + dx * sgn
+      const z = mz + dz * sgn
+      const v = i * 2 + k
+      pos[v * 3] = x
+      pos[v * 3 + 1] = SHADOW_Y
+      pos[v * 3 + 2] = z
+      // Off the table there's no floor to catch it, so fade out at the edge.
+      const edge = Math.min(HALF_W - Math.abs(x), HALF_L - Math.abs(z))
+      const inside = Math.min(1, Math.max(0, edge / SHADOW_EDGE))
+      col[v * 4] = 1
+      col[v * 4 + 1] = 1
+      col[v * 4 + 2] = 1
+      col[v * 4 + 3] = alpha * inside
+    }
+    if (i < N) {
+      const a = i * 2
+      idx.push(a, a + 1, a + 3, a, a + 3, a + 2)
+    }
+  }
+
+  const geo = new BufferGeometry()
+  geo.setAttribute('position', new BufferAttribute(pos, 3))
+  geo.setAttribute('color', new BufferAttribute(col, 4))
+  geo.setIndex(idx)
+
+  const mesh = new Mesh(
+    geo,
+    new MeshBasicMaterial({
+      color: 0x000000,
+      vertexColors: true, // carries the per-vertex alpha
+      transparent: true,
+      depthWrite: false,
+      side: DoubleSide,
+    }),
+  )
+  mesh.renderOrder = -1 // under the ball and paddle shadows
+  return mesh
 }
 
 function addPortal(group: Group, s: Slot, color: number) {

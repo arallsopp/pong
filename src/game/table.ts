@@ -23,7 +23,6 @@ import { makeFloorTexture } from './floorTexture'
 import { makeSteelTexture } from './textures'
 
 const RAIL = 0x6b7f99 // rail cap + machined cut faces
-const TEXTURE_TILE = 8 // one steel tile per 8 units of wall length
 
 /** Build the table: floor plane, side walls, and end walls flanking each goal. */
 export function buildTable(): Group {
@@ -42,7 +41,6 @@ export function buildTable(): Group {
 
   const railMat = new MeshBasicMaterial({ color: RAIL })
   const cutMat = new MeshBasicMaterial({ color: RAIL, side: DoubleSide })
-  const wallMatShort = new MeshBasicMaterial({ map: makeSteelTexture(1) })
 
   // Side walls. Each is broken at mid-court by a 45° murderball slot: the run on
   // the approach side ends in a flush chamfer (the funnel's open jaw), the run on
@@ -77,7 +75,11 @@ export function buildTable(): Group {
   const postLen = HALF_W - GOAL_HALF
   for (const sz of [-1, 1]) {
     for (const sx of [-1, 1]) {
-      const post = new Mesh(new BoxGeometry(postLen, WALL_H, WALL_T), wallMatShort)
+      // Rivets keyed to the post's world x, so they line up across the goal.
+      const postMat = new MeshBasicMaterial({
+        map: makeSteelTexture(postLen, sx > 0 ? GOAL_HALF : -HALF_W),
+      })
+      const post = new Mesh(new BoxGeometry(postLen, WALL_H, WALL_T), postMat)
       post.position.set(
         sx * (GOAL_HALF + postLen / 2),
         WALL_H / 2,
@@ -97,7 +99,7 @@ function addRun(group: Group, s: Slot, zA: number, zB: number, railMat: MeshBasi
   const cx = s.x + (s.sx * WALL_T) / 2
   const wall = new Mesh(
     new BoxGeometry(WALL_T, WALL_H, len),
-    new MeshBasicMaterial({ map: makeSteelTexture(len / TEXTURE_TILE) }),
+    new MeshBasicMaterial({ map: makeSteelTexture(len, Math.min(zA, zB)) }),
   )
   wall.position.set(cx, WALL_H / 2, cz)
   group.add(wall)
@@ -128,7 +130,7 @@ function addFin(group: Group, s: Slot, railMat: MeshBasicMaterial) {
 
   const blade = new Mesh(
     new BoxGeometry(RAMP_FIN_T, WALL_H, len),
-    new MeshBasicMaterial({ map: makeSteelTexture(len / TEXTURE_TILE) }),
+    new MeshBasicMaterial({ map: makeSteelTexture(len) }),
   )
   blade.position.set(cx, WALL_H / 2, cz)
   blade.rotation.y = yaw

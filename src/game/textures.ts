@@ -1,4 +1,6 @@
-import { CanvasTexture, LinearFilter, NearestFilter, RepeatWrapping, SRGBColorSpace } from 'three'
+import { CanvasTexture, LinearFilter, NearestFilter, SRGBColorSpace } from 'three'
+import { WALL_H } from './const'
+import { PLATE_EDGE, PLATE_MID, PLATE_PX, RIVET_PX, rivet } from './floorTexture'
 
 export interface TeamPalette {
   light: string
@@ -100,31 +102,39 @@ export function makePaddleTexture(pal: TeamPalette): CanvasTexture {
   return tex
 }
 
-/** Riveted brushed-steel panel for the walls; tiles along the wall length. */
-export function makeSteelTexture(repeatY = 8): CanvasTexture {
-  const S = 64
-  const c = canvas(S, S)
+/**
+ * Riveted steel panel for the walls — the same plate as the floor, so the court
+ * reads as one pressed-metal box. Painted at the floor's texel density and
+ * covering the run exactly (no tiling), with the rivet grid phase-locked to the
+ * run's world position so rivets line up along a wall and with the floor.
+ *
+ * `lenUnits` is the run's length and `offsetUnits` where it starts along that
+ * axis in world space.
+ */
+export function makeSteelTexture(lenUnits: number, offsetUnits = 0, heightUnits = WALL_H): CanvasTexture {
+  const S = 3 // supersample, matching the floor plate
+  const W = Math.max(4, Math.round(lenUnits * PLATE_PX))
+  const H = Math.max(4, Math.round(heightUnits * PLATE_PX))
+  const c = canvas(W * S, H * S)
   const g = c.getContext('2d')!
-  g.fillStyle = '#46566b'
-  g.fillRect(0, 0, S, S)
-  // Brushed vertical streaks.
-  for (let x = 0; x < S; x += 3) {
-    g.fillStyle = x % 6 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)'
-    g.fillRect(x, 0, 1, S)
+  g.scale(S, S)
+
+  // Panel gradient, darkest where the wall meets the floor and the cap.
+  const grad = g.createLinearGradient(0, 0, 0, H)
+  grad.addColorStop(0, PLATE_EDGE)
+  grad.addColorStop(0.5, PLATE_MID)
+  grad.addColorStop(1, PLATE_EDGE)
+  g.fillStyle = grad
+  g.fillRect(0, 0, W, H)
+
+  // Two rivet rows straddling the mid-height, on the floor's spacing.
+  const step = RIVET_PX
+  const first = (step - (((offsetUnits * PLATE_PX) % step) + step) % step) % step
+  for (const y of [H / 2 - step / 2, H / 2 + step / 2]) {
+    for (let x = first; x < W; x += step) rivet(g, x, y)
   }
-  // Rivets top and bottom.
-  for (const y of [8, S - 8]) {
-    for (let x = 8; x < S; x += 16) {
-      g.fillStyle = '#8ea4bd'
-      g.fillRect(x - 1, y - 1, 2, 2)
-      g.fillStyle = '#2a3340'
-      g.fillRect(x + 1, y + 1, 1, 1)
-    }
-  }
+
   const tex = new CanvasTexture(c)
-  tex.wrapT = RepeatWrapping
-  tex.wrapS = RepeatWrapping
-  tex.repeat.set(1, repeatY)
   tex.minFilter = NearestFilter
   tex.magFilter = NearestFilter
   tex.colorSpace = SRGBColorSpace

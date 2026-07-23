@@ -35,8 +35,17 @@ export interface StepResult {
  * mouths open), resolve paddle collisions, and clamp speed. 'near' = our goal
  * (opponent scores), 'far' = their goal (we score). hitIndex reports which
  * paddle touched the ball this step (for possession).
+ *
+ * `sealed` closes a goal mouth for the duration of a shield: [0] = the near
+ * mouth, [1] = the far one. The caller lifts the seal for a murderball, which
+ * goes through regardless.
  */
-export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
+export function stepBall(
+  ball: Body,
+  dt: number,
+  paddles: Body[],
+  sealed: [boolean, boolean] = [false, false],
+): StepResult {
   ball.x += ball.vx * dt
   ball.z += ball.vz * dt
 
@@ -65,7 +74,7 @@ export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
   const maxZ = HALF_L - ball.r
   const inMouth = Math.abs(ball.x) < GOAL_HALF
   if (ball.z > maxZ) {
-    if (inMouth) {
+    if (inMouth && !sealed[0]) {
       if (ball.z > HALF_L + ball.r) return { goal: 'near', hitIndex: -1, wall: false, phasedIndex: -1 }
     } else {
       ball.z = maxZ
@@ -73,7 +82,7 @@ export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
       wall = true
     }
   } else if (ball.z < -maxZ) {
-    if (inMouth) {
+    if (inMouth && !sealed[1]) {
       if (ball.z < -HALF_L - ball.r) return { goal: 'far', hitIndex: -1, wall: false, phasedIndex: -1 }
     } else {
       ball.z = -maxZ

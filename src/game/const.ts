@@ -14,9 +14,27 @@ export const BALL_MAX_SPEED = 42
 export const BALL_MIN_SPEED = 10
 
 export const PLAYER_MAX_SPEED = 90 // paddle tracks the finger fast
-export const AI_MAX_SPEED = 26 // deliberately beatable
 
 export const MATCH_SECONDS = 120
+
+/** How hard the AI plays. Picked on the start overlay. */
+export type Level = 'easy' | 'normal' | 'hard'
+
+export interface AiProfile {
+  maxSpeed: number
+  /** Fraction of the ball's x it misjudges by — sloppiness, not lag. */
+  aimError: number
+  /** Will it break off to grab a power-up token? */
+  usesGuns: boolean
+  /** Will it set up its own murderball run into the left slot? */
+  seeksRamp: boolean
+}
+
+export const AI_PROFILES: Record<Level, AiProfile> = {
+  easy: { maxSpeed: 18, aimError: 1.6, usesGuns: false, seeksRamp: false },
+  normal: { maxSpeed: 26, aimError: 0.7, usesGuns: true, seeksRamp: false },
+  hard: { maxSpeed: 34, aimError: 0.15, usesGuns: true, seeksRamp: true },
+}
 
 // Team colours (electric blue = us, electric pink = them). Shared by the
 // murderball glow, the wall-mouth portals, and the claim targets.

@@ -12,19 +12,21 @@ import {
   Raycaster,
   Scene,
   SphereGeometry,
+  TorusGeometry,
   Vector2,
   Vector3,
   WebGLRenderer,
 } from 'three'
 import { makeMetalMatcap, makeShadowTexture } from './game/textures'
 import {
-  AI_MAX_SPEED,
+  AI_PROFILES,
   BALL_R,
   BALL_START_SPEED,
   COLOR_ME,
   COLOR_THEM,
   CORNER_ESCAPE_TIME,
   CORNER_ESCAPE_ZONE,
+  GOAL_HALF,
   HALF_L,
   HALF_W,
   MATCH_SECONDS,
@@ -39,11 +41,21 @@ import {
   SLOTS,
   TARGET_HIT_Z,
   clamp,
+  type Level,
 } from './game/const'
 import { buildTable } from './game/table'
 import { buildRamp } from './game/ramp'
 import { buildTargets } from './game/stars'
-import { GUN_R, SHOT_SPEED, DISABLE_SECONDS, makeGunMesh, makeShotMesh } from './game/guns'
+import {
+  GUN_R,
+  POWERS,
+  POWER_LABEL,
+  POWER_SECONDS,
+  SHOT_SPEED,
+  makeShotMesh,
+  makeTokenMesh,
+  type Power,
+} from './game/guns'
 import { stepBall, type Body } from './game/physics'
 import { sfx } from './game/sound'
 
@@ -52,6 +64,15 @@ const scoreEl = document.getElementById('score')!
 const bannerEl = document.getElementById('banner')!
 const debugEl = document.getElementById('debug')!
 const muteEl = document.getElementById('mute') as HTMLButtonElement
+const restartEl = document.getElementById('restart') as HTMLButtonElement
+const tagMeEl = document.getElementById('tagMe')!
+const tagThemEl = document.getElementById('tagThem')!
+const tagMBEl = document.getElementById('tagMB')!
+const flashEl = document.getElementById('flash')!
+const startEl = document.getElementById('start')!
+const headlineEl = document.getElementById('headline')!
+const levelsEl = document.getElementById('levels')!
+const goEl = document.getElementById('go') as HTMLButtonElement
 
 // --- Renderer at full display resolution; the 16-bit look comes from the
 // nearest-filtered bitmap textures on the geometry, not from downsampling. ---
@@ -194,18 +215,28 @@ const ballShadow = new Mesh(
 ballShadow.rotation.x = -Math.PI / 2
 scene.add(ballShadow)
 
-// --- Paddles: short metal blue-grey cylinders ---
+// --- Paddles: short metal blue-grey cylinders, each wearing its team's band ---
 const PADDLE_H = 0.85
-function makePaddle(tint: number): Mesh {
-  return new Mesh(
+const BAND_T = 0.14 // band tube radius; it straddles the rim, half proud
+function makePaddle(tint: number, band: number): Mesh {
+  const m = new Mesh(
     new CylinderGeometry(PAD_R, PAD_R, PADDLE_H, 48),
     new MeshMatcapMaterial({ matcap: metalMatcap, color: tint }),
   )
+  // Unlit, so the band reads as a neon ring against the muted metal. A child of
+  // the paddle, so it tracks it and vanishes with it when the paddle shatters.
+  const ring = new Mesh(
+    new TorusGeometry(PAD_R, BAND_T, 8, 48),
+    new MeshBasicMaterial({ color: band }),
+  )
+  ring.rotation.x = -Math.PI / 2
+  m.add(ring)
+  return m
 }
 const player: Body = { x: 0, z: HALF_L * 0.6, vx: 0, vz: 0, r: PAD_R }
 const ai: Body = { x: 0, z: -HALF_L * 0.6, vx: 0, vz: 0, r: PAD_R }
-const playerMesh = makePaddle(0x9fb4cc) // lighter steel-blue (ours, bottom)
-const aiMesh = makePaddle(0x7d8ea3) // steel-grey (theirs, top)
+const playerMesh = makePaddle(0x9fb4cc, COLOR_ME) // lighter steel-blue, blue band (ours, bottom)
+const aiMesh = makePaddle(0x7d8ea3, COLOR_THEM) // steel-grey, pink band (theirs, top)
 scene.add(playerMesh, aiMesh)
 
 // Flat blob-shadows under each paddle (they sit on the table, so these are a
@@ -258,31 +289,142 @@ muteEl.addEventListener('click', () => {
   muteEl.textContent = m ? '🔇' : '🔊'
 })
 
+// --- Start / play-again overlay --- Sits over the wide opening shot; picking a
+// difficulty and tapping START runs the corners-fit zoom and begins the match.
+let started = false // gated on START; until then the camera holds the wide shot
+let overlayDelay = 0 // seconds the result banner gets before the overlay takes over
+
+function openStart(headline: string, cls = '') {
+  headlineEl.textContent = headline
+  headlineEl.className = cls
+  goEl.textContent = cls ? 'Play again' : 'Start'
+  startEl.classList.add('show')
+}
+
+levelsEl.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null
+  if (!btn) return
+  sfx.unlock()
+  level = btn.dataset.level as Level
+  aiProfile = AI_PROFILES[level]
+  levelsEl.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn))
+})
+
+goEl.addEventListener('click', () => {
+  sfx.unlock()
+  startEl.classList.remove('show')
+  resetMatch()
+  started = true
+})
+
+restartEl.addEventListener('click', () => {
+  sfx.unlock()
+  resetMatch()
+  openStart('MURDERBALL')
+})
+
 // --- Match state ---
 let scorePlayer = 0
 let scoreAI = 0
 let timeLeft = MATCH_SECONDS
 let over = false
+let level: Level = 'normal'
+let aiProfile = AI_PROFILES[level]
+let aiAimBias = 0
 
 // Possession = last paddle to touch the ball; it claims targets it strikes.
 let possession: 0 | 1 | null = null
 let cornerTime = 0 // seconds the ball has dwelled in a corner (anti-trap)
 
-// --- Weapons: pick up a gun with the paddle, release to fire ---
-interface Gun {
+// --- Neon overlays --- The tags under the score are always live; a big
+// translucent numeral punches into the middle of the screen whenever a
+// multiplier or a murderball changes hands, then fades off the table.
+const CSS_ME = `#${COLOR_ME.toString(16).padStart(6, '0')}`
+const CSS_THEM = `#${COLOR_THEM.toString(16).padStart(6, '0')}`
+const FLASH_SECONDS = 1.1
+const FLASH_IN = 0.12 // fraction of the window spent punching in
+const FLASH_HOLD = 0.45 // fraction held at full before it starts leaving
+const FLASH_PEAK = 0.55 // peak opacity — translucent, never hides the ball
+let flashText = ''
+let flashColor = CSS_ME
+let flashTime = 0
+let lastMult: [number, number] = [1, 1]
+
+function flash(text: string, color: string) {
+  flashText = text
+  flashColor = color
+  flashTime = FLASH_SECONDS
+}
+
+function updateFlash(frameDt: number) {
+  if (flashTime <= 0) return
+  flashTime -= frameDt
+  if (flashTime <= 0) {
+    flashEl.style.opacity = '0'
+    return
+  }
+  const t = 1 - flashTime / FLASH_SECONDS
+  const punch = Math.min(1, t / FLASH_IN)
+  const leave = clamp((t - FLASH_HOLD) / (1 - FLASH_HOLD), 0, 1)
+  flashEl.textContent = flashText
+  flashEl.style.color = flashColor
+  flashEl.style.opacity = String(FLASH_PEAK * punch * (1 - leave))
+  flashEl.style.transform = `scale(${1.35 - 0.35 * punch + leave * 0.3})`
+}
+
+// --- Power-ups --- One token at a time, spawned across the centre line so
+// either paddle can race for it. Freeze/shrink/slow are delivered as a homing
+// bolt and only land if it connects; shield goes up over your own goal at once.
+interface Token {
   x: number
   z: number
+  power: Power
   mesh: Mesh
 }
 interface Shot {
   x: number
   z: number
+  owner: 0 | 1
+  power: Power
   mesh: Mesh
 }
-const guns: Gun[] = []
+const guns: Token[] = []
 const shots: Shot[] = []
 let gunTimer = 5
-let aiDisabled = 0 // seconds the AI paddle stays frozen
+
+/** Per-side effect state. Index 0 = us, 1 = them. */
+interface SideFx {
+  debuff: Exclude<Power, 'shield'> | null // what's afflicting THIS side's paddle
+  debuffTime: number
+  shieldTime: number // this side's own goal is sealed while this runs
+}
+const fx: [SideFx, SideFx] = [
+  { debuff: null, debuffTime: 0, shieldTime: 0 },
+  { debuff: null, debuffTime: 0, shieldTime: 0 },
+]
+
+const SHRINK_SCALE = 0.5 // shrink halves the paddle
+const SLOW_SCALE = 0.5 // slow halves its top speed
+const SHIELD_H = 1.7 // height of the neon block across the goal
+
+// Translucent neon blocks across each goal, shown while that side is shielded.
+function makeShieldMesh(sz: number, color: number): Mesh {
+  const m = new Mesh(
+    new BoxGeometry(GOAL_HALF * 2, SHIELD_H, 0.3),
+    new MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.4,
+      blending: AdditiveBlending,
+      depthWrite: false,
+    }),
+  )
+  m.position.set(0, SHIELD_H / 2, sz * HALF_L)
+  m.visible = false
+  return m
+}
+const shieldMeshes: [Mesh, Mesh] = [makeShieldMesh(1, COLOR_ME), makeShieldMesh(-1, COLOR_THEM)]
+scene.add(shieldMeshes[0], shieldMeshes[1])
 
 // --- Murderball: armed for a side after clearing the ramp. While active, the
 // ball glows that side's colour and phases straight through the OPPONENT paddle,
@@ -363,6 +505,7 @@ function updateRamp(dt: number) {
     // Arm murderball for the mouth's owner (not the last hitter).
     murderball = rampOwner
     mbTimer = MB_SECONDS
+    flash('MURDERBALL', rampOwner === 0 ? CSS_ME : CSS_THEM)
     return
   }
   const u = rampDir > 0 ? rampPhase : 1 - rampPhase
@@ -382,6 +525,7 @@ function serve(toward: number) {
   onRamp = false
   possession = null
   rally = 0 // fresh point: let the camera ease back up
+  rollAiAim()
   rampCooldown = 1.0 // don't let the ramp grab the ball at kickoff
   // Reset murderball + reform any shattered paddle.
   murderball = null
@@ -413,10 +557,50 @@ function moveBody(b: Body, tx: number, tz: number, maxSpeed: number, dt: number)
 }
 
 function updateAI(dt: number) {
-  // Track the ball's x; advance toward it only when it's in the AI half.
-  const tx = clamp(ball.x, -(HALF_W - PAD_R), HALF_W - PAD_R)
-  const tz = ball.vz < 0 ? clamp(ball.z, -(HALF_L - PAD_R), -PAD_R * 0.3) : -HALF_L * 0.55
-  moveBody(ai, tx, tz, AI_MAX_SPEED, dt)
+  const lo = -(HALF_L - PAD_R)
+  const hi = -PAD_R * 0.3 // the AI is confined to its own half, same as we are
+  let tx: number
+  let tz: number
+
+  if (aiProfile.usesGuns && guns.length > 0 && ball.vz > 0) {
+    // Ball is on its way to our end — free to go shopping for the token.
+    tx = guns[0].x
+    tz = guns[0].z
+  } else if (aiProfile.seeksRamp && wantsRampShot()) {
+    // Line up BEHIND the ball, on the far side from its own slot, so the bounce
+    // sends it into the left throat and charges its murderball.
+    const s = SLOTS[1]
+    const dx = s.x - ball.x
+    const dz = s.z - ball.z
+    const inv = 1 / (Math.hypot(dx, dz) || 1)
+    tx = ball.x - dx * inv * (PAD_R + BALL_R) + aiAimBias
+    tz = ball.z - dz * inv * (PAD_R + BALL_R)
+  } else {
+    // Track the ball's x, misjudging it by the profile's aim error; advance
+    // toward it only when the ball is in the AI half.
+    tx = ball.x + aiAimBias
+    tz = ball.vz < 0 ? ball.z : -HALF_L * 0.55
+  }
+
+  const speed = aiProfile.maxSpeed * (fx[1].debuff === 'slow' ? SLOW_SCALE : 1)
+  moveBody(ai, clamp(tx, -(HALF_W - PAD_R), HALF_W - PAD_R), clamp(tz, lo, hi), speed, dt)
+}
+
+/** Is it worth the AI trying to feed its own slot rather than just returning? */
+function wantsRampShot() {
+  return (
+    murderball === null &&
+    rampCooldown <= 0 &&
+    ball.vz < 0 && // coming at the AI
+    ball.z < -2 && // and far enough into its half to set the shot up
+    ball.z > -HALF_L * 0.75 // but not so deep that defending has to come first
+  )
+}
+
+// The aim error is re-rolled each rally rather than each frame, so the AI plays
+// a whole exchange slightly off rather than jittering around the right answer.
+function rollAiAim() {
+  aiAimBias = (Math.random() * 2 - 1) * aiProfile.aimError * PAD_R
 }
 
 function update(dt: number) {
@@ -437,16 +621,22 @@ function update(dt: number) {
   ai.ghost = murderball === 0 || aiBroken > 0
   player.ghost = murderball === 1 || playerBroken > 0
 
-  moveBody(player, targetX, targetZ, PLAYER_MAX_SPEED, dt)
-  if (aiDisabled > 0) {
-    aiDisabled -= dt
+  updateWeapons(dt)
+
+  if (fx[0].debuff === 'freeze') {
+    player.vx = 0
+    player.vz = 0
+  } else {
+    const mine = PLAYER_MAX_SPEED * (fx[0].debuff === 'slow' ? SLOW_SCALE : 1)
+    moveBody(player, targetX, targetZ, mine, dt)
+  }
+  if (fx[1].debuff === 'freeze') {
     ai.vx = 0
     ai.vz = 0
   } else {
     updateAI(dt)
   }
   if (rampCooldown > 0) rampCooldown -= dt
-  updateWeapons(dt)
   tryPickupGun()
 
   if (onRamp) {
@@ -454,10 +644,16 @@ function update(dt: number) {
     return
   }
 
-  const res = stepBall(ball, dt, [player, ai])
+  // A shield seals its owner's goal — but a murderball goes through it, so the
+  // ramp stays the trump card.
+  const res = stepBall(ball, dt, [player, ai], [
+    fx[0].shieldTime > 0 && murderball !== 1,
+    fx[1].shieldTime > 0 && murderball !== 0,
+  ])
   if (res.hitIndex === 0) {
     possession = 0
     rally++
+    rollAiAim() // fresh misjudgement for the return leg
     sfx.paddle(Math.hypot(ball.vx, ball.vz))
   } else if (res.hitIndex === 1) {
     possession = 1
@@ -472,14 +668,14 @@ function update(dt: number) {
 
   if (res.goal === 'near') {
     scoreAI += 1 + targets.countFor(1) // their claimed targets add to their goal
-    targets.reset()
+    clearTargets()
     sfx.goalThem()
     serve(-1)
     return
   }
   if (res.goal === 'far') {
     scorePlayer += 1 + targets.countFor(0) // our claimed targets add to our goal
-    targets.reset()
+    clearTargets()
     sfx.goalUs()
     serve(1)
     return
@@ -523,29 +719,60 @@ function checkTargets() {
     if (targets.claims[i] !== possession) {
       targets.claim(i, possession)
       sfx.star()
+      announceMultipliers()
     }
   }
 }
 
+// A claim can raise one side's multiplier and drop the other's (targets are
+// stealable), so check both and shout about any that went up past x1.
+/** Wipe every claim and forget the announced multipliers, so they flash afresh. */
+function clearTargets() {
+  targets.reset()
+  lastMult = [1, 1]
+}
+
+function announceMultipliers() {
+  for (const side of [0, 1] as const) {
+    const m = 1 + targets.countFor(side)
+    if (m > lastMult[side] && m > 1) flash(`×${m}`, side === 0 ? CSS_ME : CSS_THEM)
+    lastMult[side] = m
+  }
+}
+
 function updateWeapons(dt: number) {
+  // Tick each side's effects down.
+  for (const side of [0, 1] as const) {
+    const f = fx[side]
+    if (f.debuffTime > 0) {
+      f.debuffTime -= dt
+      if (f.debuffTime <= 0) f.debuff = null
+    }
+    if (f.shieldTime > 0) f.shieldTime -= dt
+  }
+  // Shrink is the only effect that changes the collision shape.
+  player.r = fx[0].debuff === 'shrink' ? PAD_R * SHRINK_SCALE : PAD_R
+  ai.r = fx[1].debuff === 'shrink' ? PAD_R * SHRINK_SCALE : PAD_R
+
   gunTimer -= dt
   if (gunTimer <= 0 && guns.length === 0) {
-    spawnGun()
+    spawnToken()
     gunTimer = 7 + Math.random() * 6
   }
-  // Bolts home in on the AI paddle — auto-targeting.
+
+  // Bolts home in on the opposing paddle — auto-targeting.
   for (let i = shots.length - 1; i >= 0; i--) {
     const s = shots[i]
-    const dx = ai.x - s.x
-    const dz = ai.z - s.z
+    const victim = s.owner === 0 ? ai : player
+    const dx = victim.x - s.x
+    const dz = victim.z - s.z
     const d = Math.hypot(dx, dz) || 1
     s.x += (dx / d) * SHOT_SPEED * dt
     s.z += (dz / d) * SHOT_SPEED * dt
     s.mesh.position.set(s.x, 0.5, s.z)
     s.mesh.rotation.y = Math.atan2(dx, dz) // point the bolt along its heading
-    if (d < PAD_R + 0.4) {
-      aiDisabled = DISABLE_SECONDS
-      sfx.zap()
+    if (d < victim.r + 0.4) {
+      applyPower(s.power, s.owner)
       scene.remove(s.mesh)
       shots.splice(i, 1)
     } else if (Math.abs(s.z) > HALF_L + 2 || Math.abs(s.x) > HALF_W + 2) {
@@ -555,33 +782,53 @@ function updateWeapons(dt: number) {
   }
 }
 
-function spawnGun() {
-  const x = (Math.random() * 2 - 1) * (HALF_W - 2.5)
-  const z = 2 + Math.random() * (HALF_L - 4) // our half, reachable by the paddle
-  const mesh = makeGunMesh()
-  mesh.position.set(x, 0.12, z)
-  scene.add(mesh)
-  guns.push({ x, z, mesh })
+/** Land an effect. Shield buffs the grabber; everything else hits the opponent. */
+function applyPower(power: Power, owner: 0 | 1) {
+  if (power === 'shield') {
+    fx[owner].shieldTime = POWER_SECONDS
+  } else {
+    const victim: 0 | 1 = owner === 0 ? 1 : 0
+    fx[victim].debuff = power // a new debuff replaces whatever was running
+    fx[victim].debuffTime = POWER_SECONDS
+  }
+  flash(POWER_LABEL[power], owner === 0 ? CSS_ME : CSS_THEM)
+  sfx.zap()
 }
 
-// Touching a gun with the paddle grabs it immediately (token vanishes at once)
-// and fires an auto-targeting bolt at the opponent.
+// Tokens land across the centre line, in reach of both paddles — a race, not a gift.
+function spawnToken() {
+  const x = (Math.random() * 2 - 1) * (HALF_W - 2.5)
+  const z = (Math.random() * 2 - 1) * 1.5
+  const power = POWERS[Math.floor(Math.random() * POWERS.length)]
+  const mesh = makeTokenMesh(power)
+  mesh.position.set(x, 0.12, z)
+  scene.add(mesh)
+  guns.push({ x, z, power, mesh })
+}
+
+// Touching a token with either paddle grabs it immediately (it vanishes at once).
+// Shield goes up there and then; the rest fly at the opponent as a homing bolt.
 function tryPickupGun() {
   for (let i = guns.length - 1; i >= 0; i--) {
     const g = guns[i]
-    if ((g.x - player.x) ** 2 + (g.z - player.z) ** 2 < (PAD_R + GUN_R) ** 2) {
+    for (const owner of [0, 1] as const) {
+      const p = owner === 0 ? player : ai
+      if ((g.x - p.x) ** 2 + (g.z - p.z) ** 2 >= (p.r + GUN_R) ** 2) continue
       scene.remove(g.mesh)
       guns.splice(i, 1)
-      fireShot()
+      if (g.power === 'shield') applyPower(g.power, owner)
+      else fireShot(g.power, owner)
+      break
     }
   }
 }
 
-function fireShot() {
-  const mesh = makeShotMesh()
-  mesh.position.set(player.x, 0.5, player.z)
+function fireShot(power: Power, owner: 0 | 1) {
+  const from = owner === 0 ? player : ai
+  const mesh = makeShotMesh(power)
+  mesh.position.set(from.x, 0.5, from.z)
   scene.add(mesh)
-  shots.push({ x: player.x, z: player.z, mesh })
+  shots.push({ x: from.x, z: from.z, owner, power, mesh })
   sfx.gun()
 }
 
@@ -638,16 +885,61 @@ function updateShards(dt: number) {
   }
 }
 
-// Clear win/lose/draw scoreboard at the final whistle.
+// Clear win/lose/draw scoreboard at the final whistle, then hand over to the
+// overlay so the next match is one tap away.
+const BANNER_SECONDS = 2.5
 function endMatch() {
   const result = scorePlayer > scoreAI ? 'win' : scorePlayer < scoreAI ? 'lose' : 'draw'
   const headline = result === 'win' ? 'YOU WIN' : result === 'lose' ? 'YOU LOSE' : 'DRAW'
   bannerEl.style.display = 'flex'
   bannerEl.className = result // color via CSS (win = amber, lose = red, draw = grey)
   bannerEl.textContent = `${headline}\nYOU ${pad(scorePlayer)}   AI ${pad(scoreAI)}`
+  endResult = result
+  endText = `${headline}\nYOU ${pad(scorePlayer)}   AI ${pad(scoreAI)}`
+  overlayDelay = BANNER_SECONDS
   if (result === 'win') sfx.win()
   else if (result === 'lose') sfx.lose()
   else sfx.draw()
+}
+let endResult = ''
+let endText = ''
+
+/** Wipe the match back to kickoff and re-arm the opening zoom. */
+function resetMatch() {
+  scorePlayer = 0
+  scoreAI = 0
+  timeLeft = MATCH_SECONDS
+  over = false
+  overlayDelay = 0
+  bannerEl.style.display = 'none'
+  clearTargets()
+  for (const g of guns) scene.remove(g.mesh)
+  guns.length = 0
+  for (const s of shots) scene.remove(s.mesh)
+  shots.length = 0
+  for (const s of shards) scene.remove(s.mesh)
+  shards.length = 0
+  gunTimer = 5
+  for (const f of fx) {
+    f.debuff = null
+    f.debuffTime = 0
+    f.shieldTime = 0
+  }
+  player.r = PAD_R
+  ai.r = PAD_R
+  player.x = 0
+  player.z = HALF_L * 0.6
+  targetX = player.x
+  targetZ = player.z
+  ai.x = 0
+  ai.z = -HALF_L * 0.6
+  rallyLower = 0
+  playing = false
+  started = false
+  introElapsed = 0
+  acc = 0
+  last = performance.now() / 1000
+  serve(Math.random() < 0.5 ? 1 : -1)
 }
 
 function frame() {
@@ -655,11 +947,22 @@ function frame() {
   const frameDt = Math.min(now - last, MAX_FRAME)
   last = now
 
-  if (!playing) {
+  if (!started) {
+    // Hold the wide opening shot behind the start overlay.
+    updateIntro(0)
+  } else if (!playing) {
     // Opening zoom-in; gameplay and the match clock are held until it finishes.
     introElapsed += frameDt
     if (updateIntro(introElapsed)) playing = true
   } else {
+    if (over && overlayDelay > 0) {
+      // Let the result banner land, then swap in the play-again overlay.
+      overlayDelay -= frameDt
+      if (overlayDelay <= 0) {
+        bannerEl.style.display = 'none'
+        openStart(endText, endResult)
+      }
+    }
     if (!over) {
       timeLeft -= frameDt
       if (timeLeft <= 0) {
@@ -708,17 +1011,44 @@ function frame() {
   aiShadow.position.set(ai.x, 0.04, ai.z + 0.2)
   playerShadow.visible = playerBroken <= 0
   aiShadow.visible = aiBroken <= 0
-  // AI flashes red while disabled by a shot.
-  ;(aiMesh.material as MeshMatcapMaterial).color.set(aiDisabled > 0 ? 0xd23b3b : 0x7d8ea3)
+  // Shrink shows on the mesh; the collision radius is set in updateWeapons.
+  playerMesh.scale.setScalar(fx[0].debuff === 'shrink' ? SHRINK_SCALE : 1)
+  aiMesh.scale.setScalar(fx[1].debuff === 'shrink' ? SHRINK_SCALE : 1)
+  // A frozen paddle flashes red.
+  ;(aiMesh.material as MeshMatcapMaterial).color.set(
+    fx[1].debuff === 'freeze' ? 0xd23b3b : 0x7d8ea3,
+  )
+  ;(playerMesh.material as MeshMatcapMaterial).color.set(
+    fx[0].debuff === 'freeze' ? 0xd23b3b : 0x9fb4cc,
+  )
+  // Shields: pulse the neon block while it holds.
+  for (const side of [0, 1] as const) {
+    const up = fx[side].shieldTime > 0
+    shieldMeshes[side].visible = up
+    if (up) {
+      const m = shieldMeshes[side].material as MeshBasicMaterial
+      m.opacity = 0.3 + 0.15 * Math.sin(now * 9)
+    }
+  }
+
+  updateFlash(frameDt)
 
   const mm = Math.floor(timeLeft / 60)
   const ss = Math.floor(timeLeft % 60)
   scoreEl.textContent = `${pad(scorePlayer)}   ${mm}:${String(ss).padStart(2, '0')}   ${pad(scoreAI)}`
+  // Live tags: each side's multiplier, and who owns the murderball window.
+  const multMe = 1 + targets.countFor(0)
+  const multThem = 1 + targets.countFor(1)
+  tagMeEl.textContent = multMe > 1 ? `×${multMe}` : ''
+  tagThemEl.textContent = multThem > 1 ? `×${multThem}` : ''
+  tagMBEl.textContent = murderball !== null ? `MURDERBALL ${mbTimer.toFixed(1)}` : ''
+  tagMBEl.style.color = murderball === 1 ? CSS_THEM : CSS_ME
   debugEl.textContent =
     `|v| ${Math.hypot(ball.vx, ball.vz).toFixed(0)}  x${1 + targets.countFor(0)} / x${1 + targets.countFor(1)}` +
     (murderball !== null ? `  MURDERBALL ${mbTimer.toFixed(1)}` : '') +
-    (aiDisabled > 0 ? `  AI OUT ${aiDisabled.toFixed(1)}` : '') +
-    (guns.length ? '  GUN!' : '')
+    fxDebug(0, 'US') +
+    fxDebug(1, 'AI') +
+    (guns.length ? `  ${guns[0].power.toUpperCase()}!` : '')
 
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
@@ -726,6 +1056,15 @@ function frame() {
 
 function pad(n: number) {
   return String(n).padStart(3, '0')
+}
+
+/** Debug-line summary of what's currently afflicting or protecting one side. */
+function fxDebug(side: 0 | 1, label: string) {
+  const f = fx[side]
+  let s = ''
+  if (f.debuff) s += `  ${label} ${f.debuff.toUpperCase()} ${f.debuffTime.toFixed(1)}`
+  if (f.shieldTime > 0) s += `  ${label} SHIELD ${f.shieldTime.toFixed(1)}`
+  return s
 }
 
 function resize() {
@@ -738,4 +1077,5 @@ function resize() {
 window.addEventListener('resize', resize)
 resize()
 
+openStart('MURDERBALL')
 requestAnimationFrame(frame)
