@@ -1,4 +1,6 @@
 import {
+  AdditiveBlending,
+  BoxGeometry,
   CircleGeometry,
   CylinderGeometry,
   Color,
@@ -68,10 +70,11 @@ const CAM_BASE = new Vector3(0, 30, 26) // landscape "resting" position
 // pull-back is needed; MAX_ZOOMOUT caps it on very tall screens.
 const BASE_ASPECT = 1.3
 const MAX_ZOOMOUT = 2.2
-// As a rally builds, the camera eases lower for a flatter, tenser angle.
-const RALLY_FULL = 12 // paddle hits to reach the lowest angle
-const RALLY_LOWER_MAX = 0.5 // fraction of height dropped at full rally
-const RALLY_CAM_SPEED = 1.6 // how fast the camera eases toward the target angle
+// As a rally builds, the camera eases *slightly* lower for a subtly tenser
+// angle — only a few degrees, and very slowly. Keep these small.
+const RALLY_FULL = 16 // paddle hits to reach the (gentle) lowest angle
+const RALLY_LOWER_MAX = 0.12 // fraction of height dropped at full rally (~4°)
+const RALLY_CAM_SPEED = 0.4 // slow ease toward the target angle (~3s constant)
 const camera = new PerspectiveCamera(50, 1, 0.1, 200)
 camera.position.copy(CAM_BASE)
 camera.lookAt(CAM_TARGET)
@@ -88,8 +91,8 @@ function updateCamera(frameDt: number) {
   let offY = (CAM_BASE.y - CAM_TARGET.y) * fit
   let offZ = (CAM_BASE.z - CAM_TARGET.z) * fit
   const drop = rallyLower * RALLY_LOWER_MAX
-  offY *= 1 - drop // lower the eye
-  offZ *= 1 + drop * 0.25 // drift back a touch so the table stays framed
+  offY *= 1 - drop // lower the eye a few degrees
+  offZ *= 1 + drop * 0.1 // drift back a hair so the table stays framed
   camera.position.set(CAM_TARGET.x, CAM_TARGET.y + offY, CAM_TARGET.z + offZ)
   camera.lookAt(CAM_TARGET)
 }
@@ -105,6 +108,18 @@ const ballMesh = new Mesh(
   new MeshMatcapMaterial({ matcap: metalMatcap }),
 )
 scene.add(ballMesh)
+
+// --- Murderball look: electric-blue when ours, electric-pink when theirs. ---
+const MB_BLUE = 0x2ad4ff // electric blue (ours)
+const MB_PINK = 0xff3ecb // electric pink (theirs)
+const MB_SECONDS = 8 // length of the unstoppable window
+// Additive glow halo around the ball, shown only while murderball is armed.
+const ballGlow = new Mesh(
+  new SphereGeometry(BALL_R * 1.7, 24, 16),
+  new MeshBasicMaterial({ color: MB_BLUE, transparent: true, blending: AdditiveBlending, depthWrite: false }),
+)
+ballGlow.visible = false
+scene.add(ballGlow)
 
 // One soft blob-shadow texture, shared by the ball and both paddles.
 const shadowTex = makeShadowTexture()
@@ -208,6 +223,24 @@ const shots: Shot[] = []
 let gunTimer = 5
 let aiDisabled = 0 // seconds the AI paddle stays frozen
 
+// --- Murderball: armed for a side after clearing the ramp. While active, the
+// ball glows that side's colour and phases straight through the OPPONENT paddle,
+// shattering it, until it scores or the window runs out. ---
+const BREAK_SECONDS = 2.5 // how long a shattered paddle stays out before reforming
+let murderball: 0 | 1 | null = null // which side's murderball is live (0 = us)
+let mbTimer = 0 // seconds of the window remaining
+let playerBroken = 0 // seconds the player paddle stays shattered
+let aiBroken = 0
+
+interface Shard {
+  mesh: Mesh
+  vx: number
+  vy: number
+  vz: number
+  life: number
+}
+const shards: Shard[] = []
+
 // --- Ramp state ---
 let onRamp = false
 let rampPhase = 0 // 0..1 fraction of the ramp traversed since entry
@@ -261,6 +294,11 @@ function updateRamp(dt: number) {
     onRamp = false
     rampCooldown = RAMP_COOLDOWN
     sfx.rampOut()
+    // Clearing the ramp arms murderball for whoever last owned the ball.
+    if (possession !== null) {
+      murderball = possession
+      mbTimer = MB_SECONDS
+    }
     return
   }
   const u = rampDir > 0 ? rampPhase : 1 - rampPhase
@@ -281,6 +319,13 @@ function serve(toward: number) {
   possession = null
   rally = 0 // fresh point: let the camera ease back up
   rampCooldown = 1.0 // don't let the ramp grab the ball at kickoff
+  // Reset murderball + reform any shattered paddle.
+  murderball = null
+  mbTimer = 0
+  playerBroken = 0
+  aiBroken = 0
+  playerMesh.visible = true
+  aiMesh.visible = true
 }
 serve(Math.random() < 0.5 ? 1 : -1)
 
@@ -309,6 +354,23 @@ function updateAI(dt: number) {
 }
 
 function update(dt: number) {
+  // Tick the murderball window and paddle-reform timers.
+  if (mbTimer > 0) {
+    mbTimer -= dt
+    if (mbTimer <= 0) murderball = null
+  }
+  if (playerBroken > 0) {
+    playerBroken -= dt
+    if (playerBroken <= 0) playerMesh.visible = true
+  }
+  if (aiBroken > 0) {
+    aiBroken -= dt
+    if (aiBroken <= 0) aiMesh.visible = true
+  }
+  // Ghost (no bounce) while phased through by murderball, or while shattered.
+  ai.ghost = murderball === 0 || aiBroken > 0
+  player.ghost = murderball === 1 || playerBroken > 0
+
   moveBody(player, targetX, targetZ, PLAYER_MAX_SPEED, dt)
   if (aiDisabled > 0) {
     aiDisabled -= dt
@@ -338,6 +400,9 @@ function update(dt: number) {
   } else if (res.wall) {
     sfx.wall()
   }
+  // Murderball phasing through the opponent paddle shatters it.
+  if (res.phasedIndex === 1 && murderball === 0) breakPaddle(1)
+  else if (res.phasedIndex === 0 && murderball === 1) breakPaddle(0)
 
   if (res.goal === 'near') {
     scoreAI += 1 + (balance < 0 ? -balance : 0) // opponent's multiplier
@@ -431,6 +496,59 @@ function fireShot() {
   sfx.gun()
 }
 
+// Shatter a paddle: hide it, throw shards, keep it out for BREAK_SECONDS.
+function breakPaddle(idx: number) {
+  if (idx === 0) {
+    if (playerBroken > 0) return
+    playerBroken = BREAK_SECONDS
+    playerMesh.visible = false
+    spawnShards(player.x, player.z, 0x9fb4cc)
+  } else {
+    if (aiBroken > 0) return
+    aiBroken = BREAK_SECONDS
+    aiMesh.visible = false
+    spawnShards(ai.x, ai.z, 0x7d8ea3)
+  }
+  sfx.smash()
+}
+
+const SHARD_COUNT = 9
+function spawnShards(x: number, z: number, color: number) {
+  for (let i = 0; i < SHARD_COUNT; i++) {
+    const m = new Mesh(
+      new BoxGeometry(0.32, 0.32, 0.32),
+      new MeshMatcapMaterial({ matcap: metalMatcap, color }),
+    )
+    m.position.set(x, PADDLE_H / 2, z)
+    scene.add(m)
+    const a = (i / SHARD_COUNT) * Math.PI * 2 + Math.random()
+    const sp = 4 + Math.random() * 6
+    shards.push({ mesh: m, vx: Math.cos(a) * sp, vy: 5 + Math.random() * 5, vz: Math.sin(a) * sp, life: 1.4 })
+  }
+}
+
+function updateShards(dt: number) {
+  for (let i = shards.length - 1; i >= 0; i--) {
+    const s = shards[i]
+    s.life -= dt
+    s.vy -= 24 * dt // gravity
+    s.mesh.position.x += s.vx * dt
+    s.mesh.position.y += s.vy * dt
+    s.mesh.position.z += s.vz * dt
+    s.mesh.rotation.x += dt * 9
+    s.mesh.rotation.y += dt * 7
+    if (s.mesh.position.y < 0.16 && s.vy < 0) {
+      s.mesh.position.y = 0.16
+      s.vy *= -0.4 // little bounce off the floor
+    }
+    s.mesh.scale.setScalar(clamp(s.life / 1.4, 0, 1))
+    if (s.life <= 0) {
+      scene.remove(s.mesh)
+      shards.splice(i, 1)
+    }
+  }
+}
+
 // Clear win/lose/draw scoreboard at the final whistle.
 function endMatch() {
   const result = scorePlayer > scoreAI ? 'win' : scorePlayer < scoreAI ? 'lose' : 'draw'
@@ -463,6 +581,7 @@ function frame() {
   }
 
   updateCamera(frameDt)
+  updateShards(frameDt)
 
   ballMesh.position.set(ball.x, ballY, ball.z)
   // Ball shadow: directly below, growing and fading with altitude.
@@ -471,11 +590,29 @@ function frame() {
   const s = 1 + alt * 0.07
   ballShadow.scale.set(s, s, s)
   ;(ballShadow.material as MeshBasicMaterial).opacity = clamp(0.55 - alt * 0.03, 0.12, 0.55)
+
+  // Murderball glow: tint the ball and pulse an additive halo in the side colour.
+  if (murderball !== null) {
+    const col = murderball === 0 ? MB_BLUE : MB_PINK
+    ;(ballMesh.material as MeshMatcapMaterial).color.set(col)
+    ballGlow.visible = true
+    ;(ballGlow.material as MeshBasicMaterial).color.set(col)
+    const pulse = 0.4 + 0.2 * Math.sin(now * 12)
+    ;(ballGlow.material as MeshBasicMaterial).opacity = pulse
+    ballGlow.position.set(ball.x, ballY, ball.z)
+    ballGlow.scale.setScalar(1 + 0.12 * Math.sin(now * 12))
+  } else {
+    ;(ballMesh.material as MeshMatcapMaterial).color.set(0xffffff)
+    ballGlow.visible = false
+  }
+
   playerMesh.position.set(player.x, PADDLE_H / 2, player.z)
   aiMesh.position.set(ai.x, PADDLE_H / 2, ai.z)
-  // Paddle shadows track their paddle, nudged slightly toward the viewer (+z).
+  // Paddle shadows track their paddle (hidden while the paddle is shattered).
   playerShadow.position.set(player.x, 0.04, player.z + 0.2)
   aiShadow.position.set(ai.x, 0.04, ai.z + 0.2)
+  playerShadow.visible = playerBroken <= 0
+  aiShadow.visible = aiBroken <= 0
   // AI flashes red while disabled by a shot.
   ;(aiMesh.material as MeshMatcapMaterial).color.set(aiDisabled > 0 ? 0xd23b3b : 0x7d8ea3)
 
@@ -485,6 +622,7 @@ function frame() {
   const bal = balance > 0 ? `+${balance} us` : balance < 0 ? `${-balance} them` : 'even'
   debugEl.textContent =
     `|v| ${Math.hypot(ball.vx, ball.vz).toFixed(0)}  mult ${bal}` +
+    (murderball !== null ? `  MURDERBALL ${mbTimer.toFixed(1)}` : '') +
     (aiDisabled > 0 ? `  AI OUT ${aiDisabled.toFixed(1)}` : '') +
     (guns.length ? '  GUN!' : '')
 

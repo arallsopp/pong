@@ -37,6 +37,13 @@ const CP: [number, number][] = [
   [6, -0.5], // A' exit tip (near centre-right)
 ]
 
+// Chaikin corner-cutting passes applied to the control polygon before the
+// spline is fit. Each pass rounds every corner (converging to a quadratic
+// B-spline), which is what kills the kinks in the tight spiral turns. More
+// passes = smoother but the spirals pull in slightly (corners get cut). 2–3 is
+// the sweet spot; the endpoints (the entry tips) are always preserved exactly.
+const SMOOTH_ITERS = 3
+
 const GAP = 1.4 // fixed distance between the two rods
 const RIDE_H = 0.62 // ball-centre height above the rail centre-line (sits on top)
 const RAIL_R = 0.14
@@ -62,8 +69,9 @@ function heightAt(p: number): number {
  * angle scales with how hard the track turns. Enters/exits at the inner tips.
  */
 export function buildRamp(): Ramp {
-  // Plane curve, then lift each sample to its height for a smooth 3D spine.
-  const planePts = CP.map(([x, z]) => new Vector3(x, 0, z))
+  // Smooth the sparse control polygon first (rounds the spiral kinks), then fit
+  // the plane curve through the denser, rounder result.
+  const planePts = chaikin(CP, SMOOTH_ITERS).map(([x, z]) => new Vector3(x, 0, z))
   const planeCurve = new CatmullRomCurve3(planePts, false, 'centripetal')
   const spine: Vector3[] = []
   for (let i = 0; i <= N; i++) {
@@ -142,6 +150,27 @@ export function buildRamp(): Ramp {
       { x: CP[CP.length - 1][0], z: CP[CP.length - 1][1] },
     ],
   }
+}
+
+/**
+ * Chaikin corner-cutting: replace each segment with its 1/4 and 3/4 points,
+ * keeping the first/last vertices exactly (so the entry tips don't move). Each
+ * pass roughly doubles the point count and rounds every corner.
+ */
+function chaikin(pts: [number, number][], iterations: number): [number, number][] {
+  let p = pts
+  for (let k = 0; k < iterations; k++) {
+    const out: [number, number][] = [p[0]]
+    for (let i = 0; i < p.length - 1; i++) {
+      const [ax, az] = p[i]
+      const [bx, bz] = p[i + 1]
+      out.push([ax * 0.75 + bx * 0.25, az * 0.75 + bz * 0.25])
+      out.push([ax * 0.25 + bx * 0.75, az * 0.25 + bz * 0.75])
+    }
+    out.push(p[p.length - 1])
+    p = out
+  }
+  return p
 }
 
 function smooth(t: number) {

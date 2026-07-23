@@ -98,6 +98,11 @@ export const sfx = {
   zap() {
     tone({ freq: 220, dur: 0.16, type: 'square', gain: 0.24, to: 60 })
   },
+  /** Murderball shatters a paddle — a noisy crunch (stacked detuned tones). */
+  smash() {
+    tone({ freq: 180, dur: 0.22, type: 'sawtooth', gain: 0.26, to: 50 })
+    tone({ freq: 90, dur: 0.26, type: 'square', gain: 0.22, to: 40 })
+  },
   /** We score — bright rising arpeggio. */
   goalUs() {
     chord([

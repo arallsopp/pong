@@ -13,6 +13,8 @@ export interface Body {
   vx: number
   vz: number
   r: number
+  /** When true the ball passes through this body instead of bouncing. */
+  ghost?: boolean
 }
 
 export type GoalSide = 'near' | 'far' | null
@@ -23,6 +25,8 @@ export interface StepResult {
   hitIndex: number
   /** True if the ball bounced off a side/end wall this step (not a goal). */
   wall: boolean
+  /** Index of a ghost paddle the ball passed through this step, or -1. */
+  phasedIndex: number
 }
 
 /**
@@ -54,7 +58,7 @@ export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
   const inMouth = Math.abs(ball.x) < GOAL_HALF
   if (ball.z > maxZ) {
     if (inMouth) {
-      if (ball.z > HALF_L + ball.r) return { goal: 'near', hitIndex: -1, wall: false }
+      if (ball.z > HALF_L + ball.r) return { goal: 'near', hitIndex: -1, wall: false, phasedIndex: -1 }
     } else {
       ball.z = maxZ
       ball.vz = -Math.abs(ball.vz)
@@ -62,7 +66,7 @@ export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
     }
   } else if (ball.z < -maxZ) {
     if (inMouth) {
-      if (ball.z < -HALF_L - ball.r) return { goal: 'far', hitIndex: -1, wall: false }
+      if (ball.z < -HALF_L - ball.r) return { goal: 'far', hitIndex: -1, wall: false, phasedIndex: -1 }
     } else {
       ball.z = -maxZ
       ball.vz = Math.abs(ball.vz)
@@ -71,12 +75,22 @@ export function stepBall(ball: Body, dt: number, paddles: Body[]): StepResult {
   }
 
   let hitIndex = -1
+  let phasedIndex = -1
   for (let i = 0; i < paddles.length; i++) {
-    if (collidePaddle(ball, paddles[i])) hitIndex = i
+    const p = paddles[i]
+    if (p.ghost) {
+      // No bounce; just report that the ball is overlapping this paddle.
+      const dx = ball.x - p.x
+      const dz = ball.z - p.z
+      const rr = ball.r + p.r
+      if (dx * dx + dz * dz < rr * rr) phasedIndex = i
+    } else if (collidePaddle(ball, p)) {
+      hitIndex = i
+    }
   }
 
   clampSpeed(ball)
-  return { goal: null, hitIndex, wall }
+  return { goal: null, hitIndex, wall, phasedIndex }
 }
 
 /** Elastic circle-circle response; a moving paddle transfers its velocity. */
