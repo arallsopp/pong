@@ -1,241 +1,192 @@
 import {
-  BufferGeometry,
-  CircleGeometry,
+  CylinderGeometry,
   Color,
-  Float32BufferAttribute,
-  Fog,
-  Line,
-  LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
   PerspectiveCamera,
-  RingGeometry,
+  Plane,
+  Raycaster,
   Scene,
   SphereGeometry,
+  Vector2,
   Vector3,
   WebGLRenderer,
 } from 'three'
-import { RectArena } from './arena/RectArena'
-import { predictImpact, stepBall, type BallState } from './physics/Ball'
-import { Paddle } from './physics/Paddle'
-import { Stick } from './input/Stick'
-import { Trail } from './render/Trail'
+import {
+  AI_MAX_SPEED,
+  BALL_R,
+  BALL_START_SPEED,
+  HALF_L,
+  HALF_W,
+  MATCH_SECONDS,
+  PAD_R,
+  PLAYER_MAX_SPEED,
+  clamp,
+} from './game/const'
+import { buildTable } from './game/table'
+import { stepBall, type Body } from './game/physics'
 
 const app = document.getElementById('app')!
-const debug = document.getElementById('debug')!
+const scoreEl = document.getElementById('score')!
+const bannerEl = document.getElementById('banner')!
+const debugEl = document.getElementById('debug')!
 
-// --- Renderer / scene ---
-const renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+// --- Renderer with a low-res backing store (nearest-upscaled by CSS) ---
+const PIXEL_SCALE = 4
+const renderer = new WebGLRenderer({ antialias: false, powerPreference: 'high-performance' })
+renderer.setPixelRatio(1)
 app.appendChild(renderer.domElement)
 
 const scene = new Scene()
-scene.background = new Color(0x000008)
-scene.fog = new Fog(0x000008, 30, 80)
+scene.background = new Color(0x1b2430)
 
-const arena = new RectArena()
-scene.add(arena.buildMesh())
+scene.add(buildTable())
 
-// --- Paddles ---
-// Near paddle (player) defends the +z end; far paddle (AI) defends -z.
-const paddleZ = arena.depth / 2 - 4
-const player = new Paddle(paddleZ, 1)
-const ai = new Paddle(-paddleZ, -1)
-
-// A faint convex disc for the AI paddle so you can see what you're rallying with.
-const aiMesh = new Mesh(
-  new RingGeometry(0.2, ai.radius, 32),
-  new MeshBasicMaterial({ color: 0xf472b6, transparent: true, opacity: 0.5 }),
-)
-scene.add(aiMesh)
-
-// --- Camera: coupled to the player paddle. Two live-tunable knobs:
-//   coupling  = how far the camera moves vs the paddle (spatial, 0..1)
-//   tau       = follow lag in seconds (temporal damping; 0 = rigid snap)
-// Adjust in-session: [ ] change coupling, - = change tau, R toggles reticle.
-// nearGain/farGain schedule the control sensitivity by ball distance: full
-// farGain when the ball is at the far wall, down to nearGain when it's on top
-// of us. Compensates for parallax so movement feels uniform end-to-end.
-const tuning = { coupling: 0.7, tau: 0.07, reticle: true, nearGain: 0.55, farGain: 1.4 }
-const CAM_MARGIN = 1.5 // how close the camera may get to a wall before clamping
-const camZ = paddleZ + 2.5
-const camera = new PerspectiveCamera(55, 1, 0.1, 200)
-const camXY = { x: 0, y: 0 } // damped camera position, eased toward target
-
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+// Fixed tilted top-down camera, framing the portrait table.
+const camera = new PerspectiveCamera(50, 1, 0.1, 200)
+camera.position.set(0, 34, HALF_L + 20)
+camera.lookAt(0, 0, 1)
 
 // --- Ball ---
-const ball: BallState = {
-  pos: new Vector3(0, 0, 0),
-  vel: new Vector3(),
-  radius: 0.9,
-}
+const ball: Body = { x: 0, z: 0, vx: 0, vz: 0, r: BALL_R }
 const ballMesh = new Mesh(
-  new SphereGeometry(ball.radius, 24, 16),
-  new MeshBasicMaterial({ color: 0x67e8f9 }),
+  new SphereGeometry(BALL_R, 20, 14),
+  new MeshBasicMaterial({ color: 0xffe066 }),
 )
 scene.add(ballMesh)
 
-// Floor shadow — a spot on the bottom wall directly below the ball. Its z races
-// up the floor grid as the ball nears, which is the primary "approach" cue.
-const floorY = -arena.hy + 0.05
-const shadow = new Mesh(
-  new CircleGeometry(ball.radius, 24),
-  new MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.35 }),
-)
-shadow.rotation.x = -Math.PI / 2 // lay flat on the floor (normal +y)
-scene.add(shadow)
+// --- Paddles (flat discs) ---
+function makePaddle(color: number): Mesh {
+  return new Mesh(new CylinderGeometry(PAD_R, PAD_R, 0.5, 24), new MeshBasicMaterial({ color }))
+}
+const player: Body = { x: 0, z: HALF_L * 0.6, vx: 0, vz: 0, r: PAD_R }
+const ai: Body = { x: 0, z: -HALF_L * 0.6, vx: 0, vz: 0, r: PAD_R }
+const playerMesh = makePaddle(0x4aa3ff)
+const aiMesh = makePaddle(0xff7a3c)
+scene.add(playerMesh, aiMesh)
 
-// Motion trail behind the ball.
-const trail = new Trail()
-scene.add(trail.object)
+// --- Direct touch-drag: raycast pointer to the table plane ---
+const raycaster = new Raycaster()
+const tablePlane = new Plane(new Vector3(0, 1, 0), 0)
+const ndc = new Vector2()
+const hitPoint = new Vector3()
+let pointerActive = false
+let targetX = player.x
+let targetZ = player.z
 
-// Drop-line connecting the ball to its shadow — reads the ball's height and,
-// together with the shadow, disambiguates depth from vertical position.
-const dropGeo = new BufferGeometry()
-dropGeo.setAttribute('position', new Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3))
-const dropLine = new Line(
-  dropGeo,
-  new LineBasicMaterial({ color: 0x0e7490, transparent: true, opacity: 0.6 }),
-)
-scene.add(dropLine)
-
-// Predicted-impact reticle: where the incoming ball will cross the paddle plane.
-const reticle = new Mesh(
-  new RingGeometry(0.6, 0.9, 24),
-  new MeshBasicMaterial({ color: 0xfacc15, transparent: true, opacity: 0.9 }),
-)
-reticle.visible = false
-scene.add(reticle)
-
-// --- Input ---
-const stick = new Stick(renderer.domElement)
-
-// Desktop tuning keys so the camera feel can be dialled in live.
-window.addEventListener('keydown', (e) => {
-  if (e.key === '[') tuning.coupling = Math.max(0, +(tuning.coupling - 0.1).toFixed(2))
-  else if (e.key === ']') tuning.coupling = Math.min(1, +(tuning.coupling + 0.1).toFixed(2))
-  else if (e.key === '-') tuning.tau = Math.max(0, +(tuning.tau - 0.02).toFixed(2))
-  else if (e.key === '=') tuning.tau = +(tuning.tau + 0.02).toFixed(2)
-  else if (e.key === ',') tuning.nearGain = Math.max(0.1, +(tuning.nearGain - 0.05).toFixed(2))
-  else if (e.key === '.') tuning.nearGain = +(tuning.nearGain + 0.05).toFixed(2)
-  else if (e.key.toLowerCase() === 'r') tuning.reticle = !tuning.reticle
+function updatePointer(e: PointerEvent) {
+  ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1)
+  raycaster.setFromCamera(ndc, camera)
+  if (raycaster.ray.intersectPlane(tablePlane, hitPoint)) {
+    // Confine to our half (z in [~0, HALF_L]) and inside the side walls.
+    targetX = clamp(hitPoint.x, -(HALF_W - PAD_R), HALF_W - PAD_R)
+    targetZ = clamp(hitPoint.z, PAD_R * 0.3, HALF_L - PAD_R)
+  }
+}
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  pointerActive = true
+  updatePointer(e)
 })
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (pointerActive) updatePointer(e)
+})
+renderer.domElement.addEventListener('pointerup', () => (pointerActive = false))
+renderer.domElement.addEventListener('pointercancel', () => (pointerActive = false))
 
 // --- Match state ---
 let scorePlayer = 0
 let scoreAI = 0
-let rallyHits = 0
-let ctrlGain = 1 // current distance-scheduled control gain (for the readout)
+let timeLeft = MATCH_SECONDS
+let over = false
 
-function serve(toward: 1 | -1) {
-  // Serve from just in front of the server's paddle toward the other end.
-  const fromZ = toward > 0 ? -paddleZ + 2 : paddleZ - 2
-  ball.pos.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, fromZ)
-  const speed = 20
-  const ax = (Math.random() - 0.5) * 0.9
-  const ay = (Math.random() - 0.5) * 0.9
-  ball.vel.set(Math.sin(ax) * speed, Math.sin(ay) * speed, toward * Math.abs(Math.cos(ax) * speed))
-  rallyHits = 0
-  trail.reset(ball.pos)
+function serve(toward: number) {
+  ball.x = 0
+  ball.z = 0
+  const ang = (Math.random() - 0.5) * 1.0
+  ball.vx = Math.sin(ang) * BALL_START_SPEED
+  ball.vz = toward * Math.abs(Math.cos(ang) * BALL_START_SPEED)
 }
-serve(1) // first serve travels toward the player
+serve(Math.random() < 0.5 ? 1 : -1)
 
 // --- Fixed-timestep loop ---
 const HZ = 120
 const DT = 1 / HZ
 const MAX_FRAME = 0.25
-const PADDLE_SPEED = 34
-const AI_SPEED = 22 // deliberately beatable
 let acc = 0
 let last = performance.now() / 1000
 
+function moveBody(b: Body, tx: number, tz: number, maxSpeed: number, dt: number) {
+  const step = maxSpeed * dt
+  const ox = b.x
+  const oz = b.z
+  b.x += clamp(tx - b.x, -step, step)
+  b.z += clamp(tz - b.z, -step, step)
+  b.vx = (b.x - ox) / dt
+  b.vz = (b.z - oz) / dt
+}
+
+function updateAI(dt: number) {
+  // Track the ball's x; advance toward it only when it's in the AI half.
+  const tx = clamp(ball.x, -(HALF_W - PAD_R), HALF_W - PAD_R)
+  const tz = ball.vz < 0 ? clamp(ball.z, -(HALF_L - PAD_R), -PAD_R * 0.3) : -HALF_L * 0.55
+  moveBody(ai, tx, tz, AI_MAX_SPEED, dt)
+}
+
 function update(dt: number) {
-  // Player paddle target from stick, with sensitivity scheduled by ball
-  // distance (high far, low near) so movement feels uniform despite parallax.
-  const nearT = clamp((ball.pos.z + arena.depth / 2) / arena.depth, 0, 1)
-  ctrlGain = tuning.farGain + (tuning.nearGain - tuning.farGain) * nearT
-  const pspeed = PADDLE_SPEED * ctrlGain
-  const tx = player.x + stick.x * pspeed * dt
-  const ty = player.y + stick.y * pspeed * dt
-  player.moveToward(tx, ty, pspeed, dt, arena)
-
-  // AI tracks the ball's x/y with capped speed (its beatability lever).
-  ai.moveToward(ball.pos.x, ball.pos.y, AI_SPEED, dt, arena)
-
-  const r = stepBall(ball, arena, dt, [player, ai])
-  if (r.paddleHit) rallyHits++
-  if (r.goal === 'near') {
+  moveBody(player, targetX, targetZ, PLAYER_MAX_SPEED, dt)
+  updateAI(dt)
+  const goal = stepBall(ball, dt, [player, ai])
+  if (goal === 'near') {
     scoreAI++
-    serve(1)
-  } else if (r.goal === 'far') {
-    scorePlayer++
     serve(-1)
+  } else if (goal === 'far') {
+    scorePlayer++
+    serve(1)
   }
 }
 
 function frame() {
   const now = performance.now() / 1000
   const frameDt = Math.min(now - last, MAX_FRAME)
-  acc += frameDt
   last = now
-  while (acc >= DT) {
-    update(DT)
-    acc -= DT
+
+  if (!over) {
+    timeLeft -= frameDt
+    if (timeLeft <= 0) {
+      timeLeft = 0
+      over = true
+      bannerEl.style.display = 'flex'
+      bannerEl.textContent = `MATCH OVER\nSCORE ${pad(scorePlayer)} TO ${pad(scoreAI)}`
+    }
+    acc += frameDt
+    while (acc >= DT) {
+      update(DT)
+      acc -= DT
+    }
   }
 
-  // Camera target = paddle position scaled by coupling, then clamped to stay a
-  // small margin inside the walls. This is independent of the paddle's own
-  // (wider) bounds: the paddle can overhang into the corner while the camera
-  // gets very close but never crosses the wall and clips the corner geometry.
-  const cmx = arena.hx - CAM_MARGIN
-  const cmy = arena.hy - CAM_MARGIN
-  const targetX = clamp(player.x * tuning.coupling, -cmx, cmx)
-  const targetY = clamp(player.y * tuning.coupling, -cmy, cmy)
-  const k = tuning.tau > 0 ? 1 - Math.exp(-frameDt / tuning.tau) : 1
-  camXY.x += (targetX - camXY.x) * k
-  camXY.y += (targetY - camXY.y) * k
-  camera.position.set(camXY.x, camXY.y, camZ)
-  camera.lookAt(camXY.x, camXY.y, -arena.depth)
+  ballMesh.position.set(ball.x, BALL_R, ball.z)
+  playerMesh.position.set(player.x, 0.25, player.z)
+  aiMesh.position.set(ai.x, 0.25, ai.z)
 
-  ballMesh.position.copy(ball.pos)
-  trail.update(ball.pos)
-  aiMesh.position.set(ai.x, ai.y, ai.z)
-
-  // Floor shadow tracks the ball's x/z; scale it up as the ball nears the player
-  // so approach reads as a growing spot as well as a racing one.
-  const nearT = (ball.pos.z + arena.depth / 2) / arena.depth // 0 far … 1 near
-  shadow.position.set(ball.pos.x, floorY, ball.pos.z)
-  shadow.scale.setScalar(0.7 + nearT * 0.9)
-  const dp = dropLine.geometry.getAttribute('position') as Float32BufferAttribute
-  dp.setXYZ(0, ball.pos.x, ball.pos.y, ball.pos.z)
-  dp.setXYZ(1, ball.pos.x, floorY, ball.pos.z)
-  dp.needsUpdate = true
-
-  // Predicted-impact reticle on the player's paddle plane.
-  const hit = tuning.reticle ? predictImpact(ball, arena, paddleZ, DT) : null
-  if (hit) {
-    reticle.position.set(hit.x, hit.y, paddleZ)
-    reticle.visible = true
-  } else {
-    reticle.visible = false
-  }
-
-  debug.textContent =
-    `you ${scorePlayer} — ${scoreAI} ai\n` +
-    `rally hits ${rallyHits}\n` +
-    `|v| ${ball.vel.length().toFixed(1)}  z ${ball.pos.z.toFixed(1)}\n` +
-    `coupling ${tuning.coupling}  tau ${tuning.tau}  reticle ${tuning.reticle ? 'on' : 'off'}\n` +
-    `gain ${ctrlGain.toFixed(2)} (near ${tuning.nearGain} far ${tuning.farGain})`
+  const mm = Math.floor(timeLeft / 60)
+  const ss = Math.floor(timeLeft % 60)
+  scoreEl.textContent = `${pad(scorePlayer)}   ${mm}:${String(ss).padStart(2, '0')}   ${pad(scoreAI)}`
+  debugEl.textContent = `|v| ${Math.hypot(ball.vx, ball.vz).toFixed(0)}`
 
   renderer.render(scene, camera)
   requestAnimationFrame(frame)
 }
 
+function pad(n: number) {
+  return String(n).padStart(3, '0')
+}
+
 function resize() {
   const w = window.innerWidth
   const h = window.innerHeight
-  renderer.setSize(w, h, false)
+  // Low internal resolution → nearest-upscaled to the display for pixelation.
+  renderer.setSize(Math.ceil(w / PIXEL_SCALE), Math.ceil(h / PIXEL_SCALE), false)
   camera.aspect = w / h
   camera.updateProjectionMatrix()
 }

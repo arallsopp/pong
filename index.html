@@ -7,28 +7,47 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <meta name="theme-color" content="#000000" />
-    <title>FP Pong</title>
+    <title>Murderball</title>
     <style>
       :root { color-scheme: dark; }
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
       body { touch-action: none; -webkit-user-select: none; user-select: none; }
       #app { position: fixed; inset: 0; }
-      canvas { display: block; width: 100%; height: 100%; }
+      /* Low-res backing store nearest-upscaled to the display = 16-bit crunch. */
+      canvas {
+        display: block; width: 100%; height: 100%;
+        image-rendering: pixelated; image-rendering: crisp-edges;
+      }
       #hud {
         position: fixed; inset: 0; pointer-events: none;
-        font: 600 14px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
-        color: #9ff;
+        font: 700 16px/1.25 ui-monospace, "SF Mono", Menlo, monospace;
+        color: #ffcc33; text-transform: uppercase; letter-spacing: 2px;
+        text-shadow: 2px 2px 0 #000;
       }
-      #hud .debug {
-        position: absolute; top: env(safe-area-inset-top, 8px); left: 12px;
-        white-space: pre; opacity: 0.75; text-shadow: 0 0 8px #0ff;
+      #score {
+        position: absolute; top: env(safe-area-inset-top, 10px); left: 0; right: 0;
+        text-align: center; white-space: pre; font-size: 20px;
+      }
+      #banner {
+        position: absolute; inset: 0; display: none;
+        align-items: center; justify-content: center; text-align: center;
+        font-size: 28px; color: #ffcc33; text-shadow: 3px 3px 0 #000;
+        white-space: pre-line;
+      }
+      #debug {
+        position: absolute; bottom: env(safe-area-inset-bottom, 8px); left: 10px;
+        font-size: 11px; opacity: 0.6; letter-spacing: 1px;
       }
     </style>
   </head>
   <body>
     <div id="app"></div>
-    <div id="hud"><div class="debug" id="debug"></div></div>
+    <div id="hud">
+      <div id="score"></div>
+      <div id="banner"></div>
+      <div id="debug"></div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

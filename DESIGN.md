@@ -1,95 +1,85 @@
-# First-Person Pong — Design Spec
+# Murderball — Design Spec
 
-A mobile-first PWA. The screen is your bat. You defend one end of a 3D arena
-against an AI opponent at the other end.
+A mobile-first PWA. Top-down air-hockey with pinball mechanics, in a 16-bit
+Bitmap-Brothers visual style. You defend the bottom goal against an AI at the
+top. Score into their goal; most goals when the clock runs out wins.
 
-## Core loop
+> Supersedes the earlier first-person 3D Pong (still in git history / deployed).
+> This is a fresh build; only the fixed-timestep loop and reflection math carry
+> over.
 
-The ball travels down the arena toward you. You slide your paddle (and therefore
-your viewport) up/down/left/right to intercept it. Where on your convex paddle
-the ball lands determines the return angle. Bounce off any court surface is
-legal; the ball reaching your end plate loses you the point.
+## View & render
 
-## Decisions
+- **3D scene, fixed tilted-top-down camera.** Portrait. Our goal near/bottom
+  (+z), theirs far/top (-z).
+- **Full-screen pixelation.** The scene renders to a low internal resolution and
+  is nearest-upscaled to the display, so edges, motion and the ball all read as
+  genuinely 16-bit. Textures use NearestFilter, materials are unlit/flat.
 
-| Area | Decision |
-|---|---|
-| Opponent | Solo vs AI in v1. Netcode designed for, not built. |
-| Controls | Thumb-zone virtual stick, translating the paddle in its plane. |
-| Camera | Rigidly locked to the paddle. Moving the stick moves the world. |
-| Aiming | Hit-offset only. Contact-point normal on the convex surface sets the bounce. |
-| Arenas | All three from day one, behind a common interface. |
-| Stack | Three.js + Vite + TypeScript. |
-| Match | First to 5, best of 3 sets. Arena shape changes between sets. |
-| Pacing | Ball gains ~3% speed per paddle hit; resets on point. |
-| Art | Neon vector / Tron. Black void, emissive wireframe, bloom. |
-| Obstacles | Static + moving on deterministic paths. |
-| PWA | Fully offline playable after first load. |
+## Art direction
+
+Reference: Bitmap Brothers / Speedball 2.
+- **Floor:** metal blue, rivet dot-grid, a large lavender 5-point star, a green
+  center line, a center face-off circle + square.
+- **HUD:** amber pixel font on a steel panel ("MATCH OVER / SCORE 010 TO 022").
+- **Paddles:** flat discs. Ours blue, theirs orange (echoing the reference).
 
 ## Physics
 
-No gravity. The ball is a point mass with a radius, travelling in straight lines
-between collisions. Collision response is a pure reflection about the surface
-normal, plus a restitution coefficient (1.0 on court walls — no energy loss —
-and a small boost on paddle contact to drive the per-rally speed ramp).
+Custom 2D on the table plane (x = width, z = length). No gravity. The ball is a
+circle; walls and paddles reflect it (restitution ~1). A moving paddle imparts
+its velocity, so you can carry and flick. Fixed 120 Hz substeps; render
+interpolates. A separate **height channel (y)** is used only while the ball is
+on the ramp.
 
-Integration is a fixed 120Hz substep with continuous collision detection against
-the arena's implicit surface, so a fast ball can never tunnel through a wall.
-Rendering interpolates between substeps.
+- **Walls:** side walls full length; end walls in two posts either side of the
+  goal mouth.
+- **Goals:** ball fully through a goal mouth scores for the attacker.
+- **Paddle:** confined to its own half (cannot cross the center line).
 
-### Arena interface
+## Controls
 
-Every arena shape reduces to three operations, which is what makes all three
-shippable at once:
+**Direct touch-drag.** The paddle tracks your fingertip (raycast to the table
+plane), clamped to your half. Its frame-to-frame motion becomes its velocity for
+imparting to the ball.
 
-```ts
-interface Arena {
-  // Signed distance from p to the court boundary; negative = inside.
-  sdf(p: Vec3): number
-  // Outward surface normal at the nearest boundary point to p.
-  normalAt(p: Vec3): Vec3
-  // Which region p falls in — court, our end zone, or theirs.
-  zoneAt(p: Vec3): 'court' | 'near' | 'far'
-  // Legal paddle positions at depth z, for clamping player and AI movement.
-  paddleBounds(z: number): Bounds
-}
-```
+## Mechanics
 
-- **Rectangular prism** — six planes. End caps at ±z are the goals, four side
-  walls are court.
-- **Circular prism** — a cylinder. Radial normal on the side wall, flat caps at
-  ±z are the goals.
-- **Globe** — a sphere. The polar caps beyond ±0.8 of the radius on the z axis
-  are the goals; the 60% equatorial band is court. Normals are radial
-  everywhere. Paddles are spherical caps that slide across the goal region.
+### Tug-of-war multiplier
+Five stars on the side wall are a single shared pointer over `[-2,-1,0,+1,+2]`,
+starting at 0. Hitting a star with the ball nudges the pointer one step toward
+your side; the opponent nudges it back and then toward theirs. Whoever the
+pointer favors adds that many bonus points to each goal they score (max +2).
 
-## Scale
+### Central ramp & murderball
+One shared, **bidirectional** ramp near center that either side can feed via a
+small entry target. A successful entry sends the ball up a rail with real
+elevation gain and a vertical **loop**, through a **player-timed accelerator
+flipper** at the top, and back down onto the table.
 
-Anchored to the requirement that the ball reads as 33% of screen height at
-closest approach. Working backwards from a ~50° vertical FOV, that fixes the
-ball radius relative to arena depth. Concretely: arena depth 40 units, ball
-radius 0.9 units, paddle plane ~4 units in front of the camera. These get tuned
-by eye once it's running.
+- The accelerator is a flipper you tap as the ball arrives. Good timing → boost
+  and the loop **counts**. A miss → weak return and the loop does **not** count.
+- Complete **3 loops** to arm **murderball**: the next ~8 seconds the ball
+  **phases through the opponent's paddle** (timed unstoppable window). The clock
+  adds pressure and it can fizzle.
+- Symmetric: the AI can charge and arm murderball the same way.
 
-## Depth cues
+## Match
 
-First-person plus an incoming ball makes depth genuinely hard to read. Four
-cues, layered:
+Timed period (e.g. 120 s). Most goals — counting multipliers — wins. Ends on a
+"MATCH OVER" banner with the final score.
 
-1. **Ball trail** — a fading ribbon behind the ball.
-2. **Wall shadow** — a projected marker tracking the ball's position on the
-   nearest court surface.
-3. **Court grid lines** — regular banding down the arena so distance and speed
-   read against a known scale. Doubles as the fixed horizon reference the rigid
-   camera needs to stay legible.
-4. **Impact reticle** — a predicted contact crosshair on the paddle plane.
-   Difficulty-gated: always on at easy, fades out at hard.
+## Build order
+
+1. **Table foundation (this slice):** pixel-art floor, walls, goals, ball, two
+   paddles, direct-drag control, AI, timed scoring, full-screen pixelation.
+2. Ramp geometry + entry target + accelerator flipper + loop counting.
+3. Tug-of-war stars.
+4. Murderball window + VFX.
+5. Amber pixel-font scoreboard panel, SFX, PWA/offline, haptics.
 
 ## Open questions
 
-- Orientation: assuming portrait lock. Landscape gives a wider court but a worse
-  thumb reach.
-- Whether the rigid camera needs a subtle roll or FOV kick on fast movement to
-  sell the motion, or whether that tips into nausea.
-- AI difficulty model — reaction latency plus aim error is the plan, but the
-  exact curve needs playtesting.
+- Exact camera tilt/height to fill portrait nicely (tune once running).
+- Ramp geometry: how the bidirectional loop reads from a fixed top-down camera.
+- Whether the ball needs a puck-like look or stays a sphere.
