@@ -20,6 +20,13 @@ export interface Body {
 
 export type GoalSide = 'near' | 'far' | null
 
+// Global pace multiplier on the ball's clamped speed range, set per difficulty
+// (see AiProfile.pace). 1 = normal; easy runs slower to give more reaction time.
+let speedScale = 1
+export function setBallPace(p: number) {
+  speedScale = p
+}
+
 export interface StepResult {
   goal: GoalSide
   /** Index of the paddle that struck the ball this step, or -1. */
@@ -178,7 +185,9 @@ function collidePaddle(ball: Body, p: Body): boolean {
 function clampSpeed(ball: Body) {
   const s = Math.hypot(ball.vx, ball.vz)
   if (s === 0) return
-  const t = Math.max(BALL_MIN_SPEED, Math.min(BALL_MAX_SPEED, s)) / s
+  const lo = BALL_MIN_SPEED * speedScale
+  const hi = BALL_MAX_SPEED * speedScale
+  const t = Math.max(lo, Math.min(hi, s)) / s
   if (t !== 1) {
     ball.vx *= t
     ball.vz *= t

@@ -33,12 +33,14 @@ export interface AiProfile {
   usesGuns: boolean
   /** Will it set up its own murderball run into the left slot? */
   seeksRamp: boolean
+  /** Scales every ball speed (serve/clamp/ramp) — <1 gives you more time. */
+  pace: number
 }
 
 export const AI_PROFILES: Record<Level, AiProfile> = {
-  easy: { maxSpeed: 18, aimError: 1.6, usesGuns: false, seeksRamp: false },
-  normal: { maxSpeed: 26, aimError: 0.7, usesGuns: true, seeksRamp: false },
-  hard: { maxSpeed: 34, aimError: 0.15, usesGuns: true, seeksRamp: true },
+  easy: { maxSpeed: 18, aimError: 1.6, usesGuns: false, seeksRamp: false, pace: 0.6 },
+  normal: { maxSpeed: 26, aimError: 0.7, usesGuns: true, seeksRamp: false, pace: 1 },
+  hard: { maxSpeed: 34, aimError: 0.15, usesGuns: true, seeksRamp: true, pace: 1 },
 }
 
 // Team colours (electric blue = us, electric pink = them). Shared by the

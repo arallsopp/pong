@@ -57,7 +57,7 @@ import {
   makeTokenMesh,
   type Power,
 } from './game/guns'
-import { stepBall, type Body } from './game/physics'
+import { setBallPace, stepBall, type Body } from './game/physics'
 import { sfx } from './game/sound'
 
 const app = document.getElementById('app')!
@@ -312,8 +312,7 @@ levelsEl.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null
   if (!btn) return
   sfx.unlock()
-  level = btn.dataset.level as Level
-  aiProfile = AI_PROFILES[level]
+  applyLevel(btn.dataset.level as Level)
   levelsEl.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn))
 })
 
@@ -338,6 +337,15 @@ let over = false
 let level: Level = 'normal'
 let aiProfile = AI_PROFILES[level]
 let aiAimBias = 0
+
+// Pace scales every ball speed for the current difficulty (easy plays slower).
+let ballPace = aiProfile.pace
+function applyLevel(l: Level) {
+  level = l
+  aiProfile = AI_PROFILES[l]
+  ballPace = aiProfile.pace
+  setBallPace(ballPace)
+}
 
 // Possession = last paddle to touch the ball; it claims targets it strikes.
 let possession: 0 | 1 | null = null
@@ -485,7 +493,7 @@ function updateRamp(dt: number) {
     const dirX = aimX - ball.x
     const dirZ = goalZ - ball.z
     const inv = 1 / Math.hypot(dirX, dirZ)
-    const speed = BALL_START_SPEED * RAMP_RELEASE_BOOST
+    const speed = BALL_START_SPEED * RAMP_RELEASE_BOOST * ballPace
     ball.vx = dirX * inv * speed
     ball.vz = dirZ * inv * speed
     ballY = BALL_R
@@ -531,8 +539,9 @@ function placeForServe() {
 /** Send the parked ball on its way, toward -1 (their end) or +1 (ours). */
 function launch(toward: number) {
   const ang = (Math.random() - 0.5) * 1.0
-  ball.vx = Math.sin(ang) * BALL_START_SPEED
-  ball.vz = toward * Math.abs(Math.cos(ang) * BALL_START_SPEED)
+  const start = BALL_START_SPEED * ballPace
+  ball.vx = Math.sin(ang) * start
+  ball.vz = toward * Math.abs(Math.cos(ang) * start)
 }
 
 function serve(toward: number) {
@@ -853,7 +862,7 @@ function checkCornerTrap(dt: number) {
   const dx = -Math.sign(ball.x) || -1
   const dz = -Math.sign(ball.z) || -1
   const inv = 1 / Math.hypot(dx, dz)
-  const speed = Math.max(BALL_START_SPEED, Math.hypot(ball.vx, ball.vz))
+  const speed = Math.max(BALL_START_SPEED * ballPace, Math.hypot(ball.vx, ball.vz))
   ball.vx = dx * inv * speed
   ball.vz = dz * inv * speed
   cornerTime = 0
