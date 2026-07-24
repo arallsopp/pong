@@ -1037,6 +1037,8 @@ function tryPickupGun() {
   for (let i = guns.length - 1; i >= 0; i--) {
     const g = guns[i]
     for (const owner of [0, 1] as const) {
+      // A paddle shattered by a murderball is out of play — it can't grab tokens.
+      if (owner === 0 ? playerBroken > 0 : aiBroken > 0) continue
       const p = owner === 0 ? player : ai
       if ((g.x - p.x) ** 2 + (g.z - p.z) ** 2 >= (p.r + GUN_R) ** 2) continue
       scene.remove(g.mesh)
