@@ -283,6 +283,12 @@ renderer.domElement.addEventListener('pointermove', (e) => {
 renderer.domElement.addEventListener('pointerup', () => (pointerActive = false))
 renderer.domElement.addEventListener('pointercancel', () => (pointerActive = false))
 
+// iOS Safari otherwise reads a quick tap/pinch as double-tap-to-zoom or a
+// magnify gesture; swallow those so a touch only ever drives the paddle.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend', 'dblclick']) {
+  document.addEventListener(type, (e) => e.preventDefault(), { passive: false })
+}
+
 // Mute toggle (top-right HUD button).
 muteEl.addEventListener('click', () => {
   const m = !sfx.isMuted()
@@ -342,35 +348,16 @@ let cornerTime = 0 // seconds the ball has dwelled in a corner (anti-trap)
 // multiplier or a murderball changes hands, then fades off the table.
 const CSS_ME = `#${COLOR_ME.toString(16).padStart(6, '0')}`
 const CSS_THEM = `#${COLOR_THEM.toString(16).padStart(6, '0')}`
-const FLASH_SECONDS = 1.1
-const FLASH_IN = 0.12 // fraction of the window spent punching in
-const FLASH_HOLD = 0.45 // fraction held at full before it starts leaving
-const FLASH_PEAK = 0.55 // peak opacity — translucent, never hides the ball
-let flashText = ''
-let flashColor = CSS_ME
-let flashTime = 0
 let lastMult: [number, number] = [1, 1]
 
+// Punch the neon numeral in via a one-shot CSS animation; restarting it just
+// means clearing the class, forcing a reflow, and re-adding it.
 function flash(text: string, color: string) {
-  flashText = text
-  flashColor = color
-  flashTime = FLASH_SECONDS
-}
-
-function updateFlash(frameDt: number) {
-  if (flashTime <= 0) return
-  flashTime -= frameDt
-  if (flashTime <= 0) {
-    flashEl.style.opacity = '0'
-    return
-  }
-  const t = 1 - flashTime / FLASH_SECONDS
-  const punch = Math.min(1, t / FLASH_IN)
-  const leave = clamp((t - FLASH_HOLD) / (1 - FLASH_HOLD), 0, 1)
-  flashEl.textContent = flashText
-  flashEl.style.color = flashColor
-  flashEl.style.opacity = String(FLASH_PEAK * punch * (1 - leave))
-  flashEl.style.transform = `scale(${1.35 - 0.35 * punch + leave * 0.3})`
+  flashEl.textContent = text
+  flashEl.style.color = color
+  flashEl.classList.remove('play')
+  void flashEl.offsetWidth
+  flashEl.classList.add('play')
 }
 
 // --- Power-ups --- One token at a time, spawned across the centre line so
@@ -1219,8 +1206,6 @@ function frame() {
       m.opacity = 0.3 + 0.15 * Math.sin(now * 9)
     }
   }
-
-  updateFlash(frameDt)
 
   const mm = Math.floor(timeLeft / 60)
   const ss = Math.floor(timeLeft % 60)
