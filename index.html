@@ -92,6 +92,7 @@
       #headline.win { color: #7dffb0; }
       #headline.lose { color: #ff5b5b; }
       #headline.draw { color: #cbd6e4; }
+      #best { font-size: 14px; letter-spacing: 3px; color: #8ea4bd; min-height: 1em; }
       #levels { display: flex; gap: 10px; }
       #levels button {
         font: inherit; font-size: 14px; letter-spacing: 2px; text-transform: uppercase;
@@ -100,6 +101,15 @@
         color: #8ea4bd;
       }
       #levels button.on { border-color: #2ad4ff; color: #2ad4ff; }
+      /* AI options row (e.g. whether the AI collects power-ups). */
+      #opts { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #8ea4bd; }
+      #opts button {
+        font: inherit; font-size: 13px; letter-spacing: 2px; text-transform: uppercase;
+        padding: 8px 14px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+        background: rgba(20,26,34,0.8); border: 2px solid #40506a; border-radius: 8px;
+        color: #8ea4bd; min-width: 64px;
+      }
+      #opts button.on { border-color: #7dffb0; color: #7dffb0; }
       #go {
         font: inherit; font-size: 22px; letter-spacing: 4px; text-transform: uppercase;
         padding: 14px 34px; cursor: pointer; -webkit-tap-highlight-color: transparent;
@@ -121,10 +131,15 @@
       <button id="mute" aria-label="Toggle sound">🔊</button>
       <div id="start">
         <div id="headline">MURDERBALL</div>
+        <div id="best"></div>
         <div id="levels">
           <button data-level="easy">Easy</button>
           <button data-level="normal" class="on">Normal</button>
           <button data-level="hard">Hard</button>
+        </div>
+        <div id="opts">
+          <span>AI power-ups</span>
+          <button id="aiGuns" class="on" aria-pressed="true">On</button>
         </div>
         <button id="go">Start</button>
       </div>

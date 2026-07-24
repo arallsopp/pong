@@ -29,18 +29,19 @@ export interface AiProfile {
   maxSpeed: number
   /** Fraction of the ball's x it misjudges by — sloppiness, not lag. */
   aimError: number
-  /** Will it break off to grab a power-up token? */
-  usesGuns: boolean
-  /** Will it set up its own murderball run into the left slot? */
-  seeksRamp: boolean
   /** Scales every ball speed (serve/clamp/ramp) — <1 gives you more time. */
   pace: number
 }
 
+// Whether the AI collects power-up tokens is a separate on/off toggle on the
+// start overlay (see main.ts), not a per-difficulty trait. The AI no longer
+// tries to dribble the ball into its own murderball slot — that let it stick the
+// ball to its paddle and walk it to the ramp — so difficulty is now just speed,
+// aim error, and pace.
 export const AI_PROFILES: Record<Level, AiProfile> = {
-  easy: { maxSpeed: 18, aimError: 1.6, usesGuns: false, seeksRamp: false, pace: 0.6 },
-  normal: { maxSpeed: 26, aimError: 0.7, usesGuns: true, seeksRamp: false, pace: 1 },
-  hard: { maxSpeed: 34, aimError: 0.15, usesGuns: true, seeksRamp: true, pace: 1 },
+  easy: { maxSpeed: 18, aimError: 1.6, pace: 0.6 },
+  normal: { maxSpeed: 26, aimError: 0.7, pace: 1 },
+  hard: { maxSpeed: 34, aimError: 0.15, pace: 1 },
 }
 
 // Team colours (electric blue = us, electric pink = them). Shared by the

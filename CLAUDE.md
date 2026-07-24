@@ -52,7 +52,7 @@ it** (it made the round ball blocky). Don't reintroduce it without asking.
 | `main.ts` | Entry: scene, renderer, fixed **120 Hz** loop, camera, ball+paddles, touch-drag input (raycast to table plane), ramp traversal, possession, power-ups, AI, goal-replay sequence, HUD/overlays. |
 | `game/const.ts` | All dimensions and tunable gameplay constants, the `SLOTS` geometry (see below), and the `AI_PROFILES` difficulty table. |
 | `game/physics.ts` | 2D ball physics. `stepBall(ball, dt, paddles, sealed)` → `{goal, hitIndex, wall, phasedIndex}`; walls leave goal mouths open unless `sealed`; paddle = elastic circle-circle that transfers paddle velocity; guard blades are capsule colliders. |
-| `game/table.ts` | Floor plane + side walls (two runs each, chamfered around the slot, plus the guard blade) + end walls. `WALL_H=3.5`. |
+| `game/table.ts` | Floor plane + side walls (two runs each, chamfered around the slot, plus the guard blade) + end walls. Each slot mouth's 45° chamfer is plain wall steel; the owner's colour is a **lip on the wall top** at the mouth (`addMouthCap`) so it reads from the near-top-down camera. `WALL_H=3.5`. |
 | `game/floorTexture.ts` | Procedural pixel-art floor: metal-blue, rivets, **embossed** center circle + line, lavender star, amber goal mouths. Drawn at 3× res. **Owns the shared plate palette + rivet grid** (`PLATE_*`, `RIVET_PX`, `rivet()`) that the walls reuse. |
 | `game/textures.ts` | Metal matcap, steel wall panel (`makeSteelTexture(lenUnits, offsetUnits)` — exact-fit, no tiling, rivets phase-locked to world position), ball shadow texture. (`makePaddleTexture` is currently unused.) |
 | `game/ramp.ts` | Murderball rail: corkscrew up outside the **right** wall → **over-the-top arch** → mirrored corkscrew down into the **left** wall. `ride(u)` runs right mouth (u=0) → left mouth (u=1). Point-symmetric; smooth by construction. Slot portals coloured per owner, plus the projected **rail shadow**. |
@@ -62,9 +62,11 @@ it** (it made the round ball blocky). Don't reintroduce it without asking.
 ## What works now
 
 - Air-hockey rally vs a beatable AI; **timed match** (120 s) with `MATCH OVER`.
-- **Start overlay** with an Easy/Normal/Hard picker (see `AI_PROFILES`); a
-  **restart** button beside mute reopens it. Match over → banner for 2.5 s →
-  overlay again with the result and PLAY AGAIN.
+- **Start overlay** with an Easy/Normal/Hard picker (see `AI_PROFILES`) and an
+  **AI power-ups On/Off** toggle (whether the AI collects tokens — independent of
+  difficulty, default On, drives `aiGunsEnabled`/`aiToken()`); a **restart**
+  button beside mute reopens it. Match over → banner for 2.5 s → overlay again
+  with the result and PLAY AGAIN.
 - Direct **touch-drag** paddle, confined to our half; imparts velocity to ball.
   Each paddle wears its team band (blue = us, pink = them).
 - **Claim targets**: last hitter lights the target it presses against; your lit
@@ -79,15 +81,27 @@ it** (it made the round ball blocky). Don't reintroduce it without asking.
   opponent as a homing bolt and only land if it connects; `shield` seals your own
   goal at once. All 6 s; a new debuff replaces the running one. **A murderball
   goes through a shield.**
-- **AI symmetry**: Normal+ races for tokens when the ball is heading away; Hard
-  also lines up behind the ball to feed its own left slot and charge murderball.
-  Difficulty also sets top speed and aim error.
+- **AI behaviour**: races for tokens when the ball is heading away (gated by the
+  AI power-ups toggle, not difficulty); otherwise intercepts incoming balls or
+  falls back to a central home post. Difficulty (`AI_PROFILES`) is now just top
+  speed, aim error, and pace. The AI **no longer seeks the ramp** — it used to
+  line up behind the ball and dribble it into its own slot, which let it stick
+  the ball to its paddle and walk it to the ramp.
 - **Overlays**: live multiplier + murderball tags under the score; a big
   translucent neon punch-in at centre whenever either changes.
 - **Goal replay**: 2 s of tape played back at 0.5×, camera dropping out of the
   play view to chase the ball through the mouth, then a cut to the wide shot, the
   intro zoom back down, a 0.5 s beat, and the serve. **Match clock paused
-  throughout.**
+  throughout.** When **you concede** (the near goal), the chase also **orbits the
+  view around the ball** (`PLAYER_GOAL_SPIN`, default 180°) so the board spins
+  back to a readable orientation instead of cutting to a mirrored view.
+- **Scoreboard** shows each side's score in its **home colour** (blue = us, pink
+  = them); the clock stays amber.
+- **Persistence** (localStorage key `murderball`, `loadPrefs`/`savePrefs` in
+  `main.ts`): remembers difficulty, the AI power-ups toggle, mute, and the **high
+  score** (best goals scored in a match). Restored into the overlay controls by
+  `applyPrefsToUI()` on load; the overlay shows `BEST nnn`. Wrapped in try/catch
+  so private-mode/blocked storage just falls back to defaults.
 - Opening **corners-fit zoom** (1 s) into a viewport that keeps all four table
   corners in view; gentle rally-lower; corner anti-trap. Altitude-aware shadows,
   including a **projected rail shadow** that fades at the table edge.
@@ -126,7 +140,11 @@ it** (it made the round ball blocky). Don't reintroduce it without asking.
   `tryEnterRamp`); the **guard blade** turns most wrong-way balls away before they
   reach the throat. Exit aim/off-target is `RAMP_MISS` in `const.ts`.
 - Team colours `COLOR_ME` / `COLOR_THEM` live in `const.ts` (murderball glow,
-  portals, targets all share them).
+  portals, targets, slot-mouth lips, and the scoreboard scores all share them).
+- **Camera-angle gotcha:** the play camera is near-top-down, so a *vertical*
+  coloured face (like the old slot chamfer paint) is seen edge-on and clips to a
+  useless sliver. Mark things the player must read on **horizontal top surfaces**
+  (wall caps/lips) instead — that's why the slot colour moved to a wall-top lip.
 - Paddle identity is by **position** (bottom = us) not loud color — palette is
   muted metal blue-grey to match the aesthetic.
 

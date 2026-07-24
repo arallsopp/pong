@@ -72,8 +72,37 @@ const tagMBEl = document.getElementById('tagMB')!
 const flashEl = document.getElementById('flash')!
 const startEl = document.getElementById('start')!
 const headlineEl = document.getElementById('headline')!
+const bestEl = document.getElementById('best')!
 const levelsEl = document.getElementById('levels')!
+const aiGunsEl = document.getElementById('aiGuns') as HTMLButtonElement
 const goEl = document.getElementById('go') as HTMLButtonElement
+
+// --- Persistence: remember gameplay options + high score across sessions. ---
+const STORE_KEY = 'murderball'
+interface SavedPrefs {
+  level: Level
+  aiGuns: boolean
+  muted: boolean
+  highScore: number
+}
+function loadPrefs(): Partial<SavedPrefs> {
+  try {
+    return JSON.parse(localStorage.getItem(STORE_KEY) || '{}') as Partial<SavedPrefs>
+  } catch {
+    return {} // storage disabled/blocked (e.g. private mode) — just run with defaults
+  }
+}
+function savePrefs() {
+  try {
+    localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({ level, aiGuns: aiGunsEnabled, muted: sfx.isMuted(), highScore } satisfies SavedPrefs),
+    )
+  } catch {
+    /* storage disabled/full — options just won't persist */
+  }
+}
+const prefs = loadPrefs()
 
 // --- Renderer at full display resolution; the 16-bit look comes from the
 // nearest-filtered bitmap textures on the geometry, not from downsampling. ---
@@ -294,6 +323,7 @@ muteEl.addEventListener('click', () => {
   const m = !sfx.isMuted()
   sfx.setMuted(m)
   muteEl.textContent = m ? '🔇' : '🔊'
+  savePrefs()
 })
 
 // --- Start / play-again overlay --- Sits over the wide opening shot; picking a
@@ -304,6 +334,7 @@ let overlayDelay = 0 // seconds the result banner gets before the overlay takes 
 function openStart(headline: string, cls = '') {
   headlineEl.textContent = headline
   headlineEl.className = cls
+  bestEl.textContent = highScore > 0 ? `BEST ${pad(highScore)}` : ''
   goEl.textContent = cls ? 'Play again' : 'Start'
   startEl.classList.add('show')
 }
@@ -314,6 +345,19 @@ levelsEl.addEventListener('click', (e) => {
   sfx.unlock()
   applyLevel(btn.dataset.level as Level)
   levelsEl.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === btn))
+  savePrefs()
+})
+
+// AI power-ups toggle: an explicit Yes/No for whether the AI collects tokens,
+// independent of difficulty. On by default; the player can switch it off.
+let aiGunsEnabled = prefs.aiGuns ?? true
+aiGunsEl.addEventListener('click', () => {
+  sfx.unlock()
+  aiGunsEnabled = !aiGunsEnabled
+  aiGunsEl.classList.toggle('on', aiGunsEnabled)
+  aiGunsEl.textContent = aiGunsEnabled ? 'On' : 'Off'
+  aiGunsEl.setAttribute('aria-pressed', String(aiGunsEnabled))
+  savePrefs()
 })
 
 goEl.addEventListener('click', () => {
@@ -334,7 +378,8 @@ let scorePlayer = 0
 let scoreAI = 0
 let timeLeft = MATCH_SECONDS
 let over = false
-let level: Level = 'normal'
+let highScore = prefs.highScore ?? 0
+let level: Level = prefs.level ?? 'normal'
 let aiProfile = AI_PROFILES[level]
 let aiAimBias = 0
 
@@ -563,6 +608,11 @@ const CHASE_UP_NEAR = 2.0 // …and as it goes through the mouth
 const CHASE_BACK_FAR = 12 // how far behind the ball the chase starts…
 const CHASE_BACK_NEAR = 2.5 // …and ends, so we cross the line just after it
 const CHASE_SQUARE = 0.7 // how far the camera slides to centre on the goal
+// When WE concede (the near goal), the natural chase ends up behind our own goal
+// looking back up the table — a mirror image that's hard to read. So orbit the
+// view around the ball as it zooms in, spinning the board back to the familiar
+// orientation so you stay oriented. Only applied to the near (conceded) goal.
+const PLAYER_GOAL_SPIN = Math.PI // radians of orbit across the zoom (π = swing right around)
 const RESET_HOLD = 0.5 // beat at the play view before the serve
 const REPLAY_HZ = 60 // tape sampling rate
 
@@ -636,6 +686,17 @@ function replayCamera(t: number) {
   const up = CHASE_UP_FAR + (CHASE_UP_NEAR - CHASE_UP_FAR) * close
   const back = CHASE_BACK_FAR + (CHASE_BACK_NEAR - CHASE_BACK_FAR) * close
   _chase.set(ball.x * (1 - close * CHASE_SQUARE), up, ball.z - gs * back)
+  // Conceded goal: orbit the chase around the ball as it closes in, so the board
+  // spins back to a readable orientation instead of cutting to a mirrored view.
+  if (replayGoalZ > 0 && PLAYER_GOAL_SPIN !== 0) {
+    const ang = PLAYER_GOAL_SPIN * close
+    const ox = _chase.x - ball.x
+    const oz = _chase.z - ball.z
+    const cs = Math.cos(ang)
+    const sn = Math.sin(ang)
+    _chase.x = ball.x + ox * cs - oz * sn
+    _chase.z = ball.z + ox * sn + oz * cs
+  }
   _look.set(ball.x, ballY, ball.z)
 
   // Ease out of the play view rather than cutting to the chase.
@@ -708,15 +769,6 @@ function updateAI(dt: number) {
     // Ball is on its way to our end and there's a token in reach — go shopping.
     tx = token.x
     tz = token.z
-  } else if (aiProfile.seeksRamp && wantsRampShot()) {
-    // Line up BEHIND the ball, on the far side from its own slot, so the bounce
-    // sends it into the left throat and charges its murderball.
-    const s = SLOTS[1]
-    const dx = s.x - ball.x
-    const dz = s.z - ball.z
-    const inv = 1 / (Math.hypot(dx, dz) || 1)
-    tx = ball.x - dx * inv * (PAD_R + BALL_R) + aiAimBias
-    tz = ball.z - dz * inv * (PAD_R + BALL_R)
   } else if (ball.vz < 0) {
     // Ball incoming: intercept it, but stay goal-side and give a corner ball an
     // escape lane by nudging the target in off the wall rather than onto it.
@@ -735,20 +787,9 @@ function updateAI(dt: number) {
 
 /** The nearest token the AI is willing to fetch: in its own half and reachable. */
 function aiToken(): Token | null {
-  if (!aiProfile.usesGuns) return null
+  if (!aiGunsEnabled) return null
   for (const g of guns) if (g.z <= -PADDLE_FRONT_LIMIT) return g
   return null
-}
-
-/** Is it worth the AI trying to feed its own slot rather than just returning? */
-function wantsRampShot() {
-  return (
-    murderball === null &&
-    rampCooldown <= 0 &&
-    ball.vz < 0 && // coming at the AI
-    ball.z < -PADDLE_FRONT_LIMIT - 1 && // and clear of the neutral band
-    ball.z > -HALF_L * 0.75 // but not so deep that defending has to come first
-  )
 }
 
 // The aim error is re-rolled each rally rather than each frame, so the AI plays
@@ -978,7 +1019,9 @@ function applyPower(power: Power, owner: 0 | 1) {
 // grab, sometimes the AI's, rarely both. Kept out of the neutral band (where no
 // paddle can reach) and off the goal areas.
 function spawnToken() {
-  const side = Math.random() < 0.5 ? 1 : -1
+  // With AI power-ups off, only ever spawn on our half (+z) — nothing the AI
+  // could reach on its side. Otherwise pick a side at random.
+  const side = !aiGunsEnabled ? 1 : Math.random() < 0.5 ? 1 : -1
   const x = (Math.random() * 2 - 1) * (HALF_W - 2.5)
   const z = side * (PADDLE_FRONT_LIMIT + 1 + Math.random() * (HALF_L - PADDLE_FRONT_LIMIT - 3.5))
   const power = POWERS[Math.floor(Math.random() * POWERS.length)]
@@ -1078,6 +1121,8 @@ function endMatch() {
   bannerEl.textContent = `${headline}\nYOU ${pad(scorePlayer)}   AI ${pad(scoreAI)}`
   endResult = result
   endText = `${headline}\nYOU ${pad(scorePlayer)}   AI ${pad(scoreAI)}`
+  if (scorePlayer > highScore) highScore = scorePlayer // best goals scored in a match
+  savePrefs()
   overlayDelay = BANNER_SECONDS
   if (result === 'win') sfx.win()
   else if (result === 'lose') sfx.lose()
@@ -1218,7 +1263,12 @@ function frame() {
 
   const mm = Math.floor(timeLeft / 60)
   const ss = Math.floor(timeLeft % 60)
-  scoreEl.textContent = `${pad(scorePlayer)}   ${mm}:${String(ss).padStart(2, '0')}   ${pad(scoreAI)}`
+  // Score in each side's home colour (blue = us, pink = them) so it's clear at a
+  // glance who owns which number; the clock keeps the amber HUD colour.
+  scoreEl.innerHTML =
+    `<span style="color:${CSS_ME}">${pad(scorePlayer)}</span>` +
+    `   ${mm}:${String(ss).padStart(2, '0')}   ` +
+    `<span style="color:${CSS_THEM}">${pad(scoreAI)}</span>`
   // Live tags: each side's multiplier, and who owns the murderball window.
   const multMe = 1 + targets.countFor(0)
   const multThem = 1 + targets.countFor(1)
@@ -1259,6 +1309,20 @@ function resize() {
 }
 window.addEventListener('resize', resize)
 resize()
+
+// Reflect the restored options in the overlay controls before the first paint.
+function applyPrefsToUI() {
+  applyLevel(level) // keep ballPace/setBallPace in sync with the restored level
+  levelsEl
+    .querySelectorAll('button')
+    .forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.level === level))
+  aiGunsEl.classList.toggle('on', aiGunsEnabled)
+  aiGunsEl.textContent = aiGunsEnabled ? 'On' : 'Off'
+  aiGunsEl.setAttribute('aria-pressed', String(aiGunsEnabled))
+  sfx.setMuted(prefs.muted ?? false)
+  muteEl.textContent = sfx.isMuted() ? '🔇' : '🔊'
+}
+applyPrefsToUI()
 
 openStart('MURDERBALL')
 requestAnimationFrame(frame)

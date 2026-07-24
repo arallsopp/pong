@@ -25,6 +25,8 @@ import { makeFloorTexture } from './floorTexture'
 import { makeSteelTexture } from './textures'
 
 const RAIL = 0x6b7f99 // rail cap + machined cut faces
+const WALL_FLAT = 0x3c4959 // flat wall tone for the small 45° chamfer faces
+const MOUTH_CAP_LEN = 1.6 // length of the owner-coloured lip capping each slot-mouth wall end
 
 /** Build the table: floor plane, side walls, and end walls flanking each goal. */
 export function buildTable(): Group {
@@ -42,11 +44,14 @@ export function buildTable(): Group {
   group.add(floor)
 
   const railMat = new MeshBasicMaterial({ color: RAIL })
-  // The two slot mouths have no portal disc — instead their chamfered edges are
-  // painted the owner's colour, so the hole reads as ours (blue) or theirs (pink).
-  const edgeMat: [MeshBasicMaterial, MeshBasicMaterial] = [
-    new MeshBasicMaterial({ color: COLOR_ME, side: DoubleSide }),
-    new MeshBasicMaterial({ color: COLOR_THEM, side: DoubleSide }),
+  // The 45° chamfer faces are plain wall steel; seen edge-on from the near-top-down
+  // camera a coloured vertical face just clips to a sliver. Instead the OWNER's
+  // colour is a lip capping each slot-mouth wall END on top, which reads cleanly
+  // from above and tells you the hole is ours (blue) or theirs (pink).
+  const chamferMat = new MeshBasicMaterial({ color: WALL_FLAT, side: DoubleSide })
+  const capMat: [MeshBasicMaterial, MeshBasicMaterial] = [
+    new MeshBasicMaterial({ color: COLOR_ME }),
+    new MeshBasicMaterial({ color: COLOR_THEM }),
   ]
 
   // Side walls. Each is broken at mid-court by a 45° murderball slot: the run on
@@ -56,12 +61,12 @@ export function buildTable(): Group {
   for (const s of SLOTS) {
     const inner = s.x
     const outer = s.x + s.sx * WALL_T
-    const edge = edgeMat[s.owner]
+    const cap = capMat[s.owner]
 
     // Run behind the guard blade: its inner face reaches zFin, the outer face
     // stops WALL_T short, and the chamfer between them continues as the blade.
     addRun(group, s, -s.sx * HALF_L, s.zFin - s.sx * WALL_T, railMat)
-    addCut(group, edge, [
+    addCut(group, chamferMat, [
       [inner, s.zFin],
       [inner, s.zFin - s.sx * WALL_T],
       [outer, s.zFin - s.sx * WALL_T],
@@ -70,11 +75,16 @@ export function buildTable(): Group {
     // Approach-side run: chamfered the same way round, so both cut faces lie
     // parallel to the slot axis and the funnel reads as one aligned throat.
     addRun(group, s, s.zOpen, s.sx * HALF_L, railMat)
-    addCut(group, edge, [
+    addCut(group, chamferMat, [
       [inner, s.zOpen],
       [outer, s.zOpen],
       [outer, s.zOpen - s.sx * WALL_T],
     ])
+
+    // Owner-coloured lip on each run's slot-mouth end (guard end, then approach
+    // end), running back INTO the run away from the throat.
+    addMouthCap(group, s, s.zFin - s.sx * WALL_T, -s.sx, cap)
+    addMouthCap(group, s, s.zOpen, s.sx, cap)
 
     addFin(group, s, railMat)
   }
@@ -121,6 +131,20 @@ function addRun(group: Group, s: Slot, zA: number, zB: number, railMat: MeshBasi
   const cap = new Mesh(new BoxGeometry(WALL_T, 0.15, len), railMat)
   cap.position.set(cx, WALL_H, cz)
   group.add(cap)
+}
+
+/**
+ * An owner-coloured lip laid along the TOP of a wall run's slot-mouth end, so the
+ * slot reads as ours/theirs from the near-top-down camera. `zEnd` is the run's
+ * mouth-facing end; `sInward` (±1) points back into the run, away from the throat.
+ * Sits a hair proud of the steel rail cap so it wins the depth test cleanly.
+ */
+function addMouthCap(group: Group, s: Slot, zEnd: number, sInward: number, mat: MeshBasicMaterial) {
+  const cx = s.x + (s.sx * WALL_T) / 2
+  const cz = zEnd + (sInward * MOUTH_CAP_LEN) / 2
+  const lip = new Mesh(new BoxGeometry(WALL_T, 0.18, MOUTH_CAP_LEN), mat)
+  lip.position.set(cx, WALL_H + 0.02, cz)
+  group.add(lip)
 }
 
 /** The 45° chamfer closing off a run's end: a right-triangle prism, full height. */
