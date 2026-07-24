@@ -15,6 +15,11 @@ export const BALL_MIN_SPEED = 10
 
 export const PLAYER_MAX_SPEED = 90 // paddle tracks the finger fast
 
+// Neither paddle may come closer to the centre line than this, so a paddle can't
+// sit in front of the mid-court murderball slot/guard and block the ramp. Both
+// halves keep a clear neutral band of ±PADDLE_FRONT_LIMIT across the middle.
+export const PADDLE_FRONT_LIMIT = 2.0
+
 export const MATCH_SECONDS = 120
 
 /** How hard the AI plays. Picked on the start overlay. */

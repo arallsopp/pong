@@ -37,6 +37,7 @@ import {
   RAMP_MISS,
   RAMP_RELEASE_BOOST,
   RAMP_SPEED,
+  PADDLE_FRONT_LIMIT,
   PLAYER_MAX_SPEED,
   SLOTS,
   TARGET_HIT_Z,
@@ -266,9 +267,9 @@ function updatePointer(e: PointerEvent) {
   ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1)
   raycaster.setFromCamera(ndc, camera)
   if (raycaster.ray.intersectPlane(tablePlane, hitPoint)) {
-    // Confine to our half (z in [~0, HALF_L]) and inside the side walls.
+    // Confine to our half, kept back from the mid-court slot and inside the walls.
     targetX = clamp(hitPoint.x, -(HALF_W - PAD_R), HALF_W - PAD_R)
-    targetZ = clamp(hitPoint.z, PAD_R * 0.3, HALF_L - PAD_R)
+    targetZ = clamp(hitPoint.z, PADDLE_FRONT_LIMIT, HALF_L - PAD_R)
   }
 }
 renderer.domElement.addEventListener('pointerdown', (e) => {
@@ -390,7 +391,9 @@ interface Shot {
 }
 const guns: Token[] = []
 const shots: Shot[] = []
-let gunTimer = 5
+const TOKEN_MIN_GAP = 16 // seconds before a token can reappear…
+const TOKEN_GAP_SPREAD = 12 // …plus up to this much more
+let gunTimer = TOKEN_MIN_GAP
 
 /** Per-side effect state. Index 0 = us, 1 = them. */
 interface SideFx {
@@ -535,6 +538,7 @@ function placeForServe() {
   aiBroken = 0
   playerMesh.visible = true
   aiMesh.visible = true
+  clearEffects() // a new point starts clean — no freeze/shrink/slow/shield carrying over
 }
 
 /** Send the parked ball on its way, toward -1 (their end) or +1 (ours). */
@@ -696,15 +700,18 @@ function moveBody(b: Body, tx: number, tz: number, maxSpeed: number, dt: number)
 }
 
 function updateAI(dt: number) {
-  const lo = -(HALF_L - PAD_R)
-  const hi = -PAD_R * 0.3 // the AI is confined to its own half, same as we are
+  const lo = -(HALF_L - PAD_R) // don't back all the way onto its own goal line…
+  const hi = -PADDLE_FRONT_LIMIT // …nor cross into the mid-court neutral band
+  // Stay off the side walls by a touch, so the AI can't pin the ball in a corner.
+  const wallX = HALF_W - PAD_R - 0.5
   let tx: number
   let tz: number
 
-  if (aiProfile.usesGuns && guns.length > 0 && ball.vz > 0) {
-    // Ball is on its way to our end — free to go shopping for the token.
-    tx = guns[0].x
-    tz = guns[0].z
+  const token = aiToken()
+  if (token && ball.vz > 0) {
+    // Ball is on its way to our end and there's a token in reach — go shopping.
+    tx = token.x
+    tz = token.z
   } else if (aiProfile.seeksRamp && wantsRampShot()) {
     // Line up BEHIND the ball, on the far side from its own slot, so the bounce
     // sends it into the left throat and charges its murderball.
@@ -714,15 +721,27 @@ function updateAI(dt: number) {
     const inv = 1 / (Math.hypot(dx, dz) || 1)
     tx = ball.x - dx * inv * (PAD_R + BALL_R) + aiAimBias
     tz = ball.z - dz * inv * (PAD_R + BALL_R)
-  } else {
-    // Track the ball's x, misjudging it by the profile's aim error; advance
-    // toward it only when the ball is in the AI half.
+  } else if (ball.vz < 0) {
+    // Ball incoming: intercept it, but stay goal-side and give a corner ball an
+    // escape lane by nudging the target in off the wall rather than onto it.
     tx = ball.x + aiAimBias
-    tz = ball.vz < 0 ? ball.z : -HALF_L * 0.55
+    if (Math.abs(ball.x) > wallX) tx = Math.sign(ball.x) * (wallX - 0.6)
+    tz = Math.min(ball.z, hi) // never chase past the ball toward its own goal
+  } else {
+    // Ball leaving: fall back to a central home post.
+    tx = aiAimBias
+    tz = -HALF_L * 0.55
   }
 
   const speed = aiProfile.maxSpeed * (fx[1].debuff === 'slow' ? SLOW_SCALE : 1)
-  moveBody(ai, clamp(tx, -(HALF_W - PAD_R), HALF_W - PAD_R), clamp(tz, lo, hi), speed, dt)
+  moveBody(ai, clamp(tx, -wallX, wallX), clamp(tz, lo, hi), speed, dt)
+}
+
+/** The nearest token the AI is willing to fetch: in its own half and reachable. */
+function aiToken(): Token | null {
+  if (!aiProfile.usesGuns) return null
+  for (const g of guns) if (g.z <= -PADDLE_FRONT_LIMIT) return g
+  return null
 }
 
 /** Is it worth the AI trying to feed its own slot rather than just returning? */
@@ -731,7 +750,7 @@ function wantsRampShot() {
     murderball === null &&
     rampCooldown <= 0 &&
     ball.vz < 0 && // coming at the AI
-    ball.z < -2 && // and far enough into its half to set the shot up
+    ball.z < -PADDLE_FRONT_LIMIT - 1 && // and clear of the neutral band
     ball.z > -HALF_L * 0.75 // but not so deep that defending has to come first
   )
 }
@@ -904,7 +923,7 @@ function updateWeapons(dt: number) {
   gunTimer -= dt
   if (gunTimer <= 0 && guns.length === 0) {
     spawnToken()
-    gunTimer = 7 + Math.random() * 6
+    gunTimer = TOKEN_MIN_GAP + Math.random() * TOKEN_GAP_SPREAD
   }
 
   // Bolts home in on the opposing paddle — auto-targeting.
@@ -929,6 +948,23 @@ function updateWeapons(dt: number) {
   }
 }
 
+/** Drop every live power-up effect and any in-flight bolt (used on each goal). */
+function clearEffects() {
+  for (const f of fx) {
+    f.debuff = null
+    f.debuffTime = 0
+    f.shieldTime = 0
+  }
+  player.r = PAD_R
+  ai.r = PAD_R
+  playerMesh.scale.setScalar(1)
+  aiMesh.scale.setScalar(1)
+  shieldMeshes[0].visible = false
+  shieldMeshes[1].visible = false
+  for (const s of shots) scene.remove(s.mesh)
+  shots.length = 0
+}
+
 /** Land an effect. Shield buffs the grabber; everything else hits the opponent. */
 function applyPower(power: Power, owner: 0 | 1) {
   if (power === 'shield') {
@@ -942,10 +978,13 @@ function applyPower(power: Power, owner: 0 | 1) {
   sfx.zap()
 }
 
-// Tokens land across the centre line, in reach of both paddles — a race, not a gift.
+// A token lands at a random reachable spot on a random side — sometimes yours to
+// grab, sometimes the AI's, rarely both. Kept out of the neutral band (where no
+// paddle can reach) and off the goal areas.
 function spawnToken() {
+  const side = Math.random() < 0.5 ? 1 : -1
   const x = (Math.random() * 2 - 1) * (HALF_W - 2.5)
-  const z = (Math.random() * 2 - 1) * 1.5
+  const z = side * (PADDLE_FRONT_LIMIT + 1 + Math.random() * (HALF_L - PADDLE_FRONT_LIMIT - 3.5))
   const power = POWERS[Math.floor(Math.random() * POWERS.length)]
   const mesh = makeTokenMesh(power)
   mesh.position.set(x, 0.12, z)
@@ -1066,14 +1105,8 @@ function resetMatch() {
   shots.length = 0
   for (const s of shards) scene.remove(s.mesh)
   shards.length = 0
-  gunTimer = 5
-  for (const f of fx) {
-    f.debuff = null
-    f.debuffTime = 0
-    f.shieldTime = 0
-  }
-  player.r = PAD_R
-  ai.r = PAD_R
+  gunTimer = TOKEN_MIN_GAP
+  clearEffects()
   player.x = 0
   player.z = HALF_L * 0.6
   targetX = player.x

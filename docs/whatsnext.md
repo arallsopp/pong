@@ -1,4 +1,7 @@
 # whats next?
+
+commit as you go.
+
 1. refine AI movement.
    - Prevent the AI from getticng stuck in the corner with the ball trapped behind it. 
    - Don't let the AI come too far forward. Currently it wins all of the powerups and blocks the murderball ramp.
@@ -11,4 +14,7 @@
 
 3. Game play
   - The Ai picks up the power-ups too quickly. We need them put down less often, and in a random location.
-  - The frame rate really suffers on desktop when the overlay text appears. Mobile seems fine.                                        
+  - The frame rate really suffers on desktop when the overlay text appears. Mobile seems fine. 
+  - Don't let touch be interpreted as a hover zoom on IOS.
+  - Cancel any gun effect after a goal.
+  - Scoreboard should use home colours for score so that we know who has which score.
