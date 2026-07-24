@@ -2,18 +2,16 @@ import {
   BufferAttribute,
   BufferGeometry,
   CatmullRomCurve3,
-  CircleGeometry,
   DoubleSide,
   Group,
   Mesh,
   MeshBasicMaterial,
   MeshMatcapMaterial,
-  RingGeometry,
   TubeGeometry,
   Vector3,
 } from 'three'
 import { makeMetalMatcap } from './textures'
-import { BALL_R, COLOR_ME, COLOR_THEM, HALF_L, HALF_W, SLOTS, type Slot } from './const'
+import { BALL_R, HALF_L, HALF_W, SLOTS } from './const'
 
 export interface Ramp {
   group: Group
@@ -84,11 +82,6 @@ export function buildRamp(): Ramp {
   }
 
   group.add(buildShadow(railL, railR))
-
-  // Slot portals: a dark disc across the throat, ringed in the owner's colour,
-  // square to the 45° slot axis.
-  addPortal(group, SLOTS[0], COLOR_ME)
-  addPortal(group, SLOTS[1], COLOR_THEM)
 
   const ride = (u: number, out: Vector3): Vector3 => {
     const f = Math.max(0, Math.min(1, u)) * N
@@ -212,25 +205,3 @@ function buildShadow(railL: Vector3[], railR: Vector3[]): Mesh {
   return mesh
 }
 
-function addPortal(group: Group, s: Slot, color: number) {
-  const yaw = Math.atan2(s.ax, s.az) // disc normal → the slot axis
-  // Sit the portal a touch inside the throat so it can't z-fight the wall runs.
-  const x = s.x - s.ax * 0.05
-  const z = s.z - s.az * 0.05
-
-  const disc = new Mesh(
-    new CircleGeometry(0.95, 24),
-    new MeshBasicMaterial({ color: 0x05070a, side: DoubleSide }),
-  )
-  disc.rotation.y = yaw
-  disc.position.set(x, MOUTH_Y, z)
-  group.add(disc)
-
-  const ring = new Mesh(
-    new RingGeometry(0.95, 1.25, 24),
-    new MeshBasicMaterial({ color, side: DoubleSide, transparent: true, opacity: 0.9 }),
-  )
-  ring.rotation.y = yaw
-  ring.position.set(x, MOUTH_Y, z)
-  group.add(ring)
-}

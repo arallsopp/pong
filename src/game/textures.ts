@@ -1,6 +1,6 @@
 import { CanvasTexture, LinearFilter, NearestFilter, SRGBColorSpace } from 'three'
 import { WALL_H } from './const'
-import { PLATE_EDGE, PLATE_MID, PLATE_PX, RIVET_PX, rivet } from './floorTexture'
+import { PLATE_PX, RIVET_PX, rivet } from './floorTexture'
 
 export interface TeamPalette {
   light: string
@@ -102,11 +102,20 @@ export function makePaddleTexture(pal: TeamPalette): CanvasTexture {
   return tex
 }
 
+// Walls are the floor plate a few shades darker, so they read as raised sides
+// rather than blending into the floor.
+const WALL_EDGE = '#333e4b'
+const WALL_MID = '#3c4959'
+const WALL_HI = '#55677d' // embossed seam highlight
+const WALL_LO = '#232b35' // embossed seam shadow
+const PANEL_UNITS = 2.5 // one raised panel per this many units of wall length
+
 /**
- * Riveted steel panel for the walls — the same plate as the floor, so the court
- * reads as one pressed-metal box. Painted at the floor's texel density and
- * covering the run exactly (no tiling), with the rivet grid phase-locked to the
- * run's world position so rivets line up along a wall and with the floor.
+ * Riveted steel panel for the walls — a darker cast of the floor plate, divided
+ * into tall raised panels by embossed vertical seams, so a long wall doesn't
+ * read as a flat bar. Painted at the floor's texel density and covering the run
+ * exactly (no tiling); the seam and rivet grids are phase-locked to the run's
+ * world position so they line up along a wall and with the floor.
  *
  * `lenUnits` is the run's length and `offsetUnits` where it starts along that
  * axis in world space.
@@ -121,11 +130,30 @@ export function makeSteelTexture(lenUnits: number, offsetUnits = 0, heightUnits 
 
   // Panel gradient, darkest where the wall meets the floor and the cap.
   const grad = g.createLinearGradient(0, 0, 0, H)
-  grad.addColorStop(0, PLATE_EDGE)
-  grad.addColorStop(0.5, PLATE_MID)
-  grad.addColorStop(1, PLATE_EDGE)
+  grad.addColorStop(0, WALL_EDGE)
+  grad.addColorStop(0.5, WALL_MID)
+  grad.addColorStop(1, WALL_EDGE)
   g.fillStyle = grad
   g.fillRect(0, 0, W, H)
+
+  // A top and bottom inset line, so each panel reads as recessed from the cap.
+  g.fillStyle = WALL_LO
+  g.fillRect(0, 1, W, 1)
+  g.fillRect(0, H - 2, W, 1)
+  g.fillStyle = WALL_HI
+  g.fillRect(0, 2, W, 1)
+  g.fillRect(0, H - 3, W, 1)
+
+  // Embossed vertical panel seams: a bright edge then a dark groove, keyed to
+  // world position so panels tile continuously from one run to the next.
+  const seam = PANEL_UNITS * PLATE_PX
+  const firstSeam = (seam - (((offsetUnits * PLATE_PX) % seam) + seam) % seam) % seam
+  for (let x = firstSeam; x < W; x += seam) {
+    g.fillStyle = WALL_HI
+    g.fillRect(x - 1, 2, 1, H - 4)
+    g.fillStyle = WALL_LO
+    g.fillRect(x, 2, 1, H - 4)
+  }
 
   // Two rivet rows straddling the mid-height, on the floor's spacing.
   const step = RIVET_PX

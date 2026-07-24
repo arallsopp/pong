@@ -9,6 +9,8 @@ import {
   Shape,
 } from 'three'
 import {
+  COLOR_ME,
+  COLOR_THEM,
   GOAL_HALF,
   HALF_L,
   HALF_W,
@@ -40,7 +42,12 @@ export function buildTable(): Group {
   group.add(floor)
 
   const railMat = new MeshBasicMaterial({ color: RAIL })
-  const cutMat = new MeshBasicMaterial({ color: RAIL, side: DoubleSide })
+  // The two slot mouths have no portal disc — instead their chamfered edges are
+  // painted the owner's colour, so the hole reads as ours (blue) or theirs (pink).
+  const edgeMat: [MeshBasicMaterial, MeshBasicMaterial] = [
+    new MeshBasicMaterial({ color: COLOR_ME, side: DoubleSide }),
+    new MeshBasicMaterial({ color: COLOR_THEM, side: DoubleSide }),
+  ]
 
   // Side walls. Each is broken at mid-court by a 45° murderball slot: the run on
   // the approach side ends in a flush chamfer (the funnel's open jaw), the run on
@@ -49,11 +56,12 @@ export function buildTable(): Group {
   for (const s of SLOTS) {
     const inner = s.x
     const outer = s.x + s.sx * WALL_T
+    const edge = edgeMat[s.owner]
 
     // Run behind the guard blade: its inner face reaches zFin, the outer face
     // stops WALL_T short, and the chamfer between them continues as the blade.
     addRun(group, s, -s.sx * HALF_L, s.zFin - s.sx * WALL_T, railMat)
-    addCut(group, cutMat, [
+    addCut(group, edge, [
       [inner, s.zFin],
       [inner, s.zFin - s.sx * WALL_T],
       [outer, s.zFin - s.sx * WALL_T],
@@ -62,7 +70,7 @@ export function buildTable(): Group {
     // Approach-side run: chamfered the same way round, so both cut faces lie
     // parallel to the slot axis and the funnel reads as one aligned throat.
     addRun(group, s, s.zOpen, s.sx * HALF_L, railMat)
-    addCut(group, cutMat, [
+    addCut(group, edge, [
       [inner, s.zOpen],
       [outer, s.zOpen],
       [outer, s.zOpen - s.sx * WALL_T],
@@ -71,14 +79,15 @@ export function buildTable(): Group {
     addFin(group, s, railMat)
   }
 
-  // End walls: two posts either side of each goal mouth.
-  const postLen = HALF_W - GOAL_HALF
+  // End walls: two posts either side of each goal mouth. Each runs from the goal
+  // edge out to the OUTER face of the side wall, so the four corners close flush
+  // (no little square gap where side wall meets end wall).
+  const postLen = HALF_W + WALL_T - GOAL_HALF
   for (const sz of [-1, 1]) {
     for (const sx of [-1, 1]) {
+      const startX = sx > 0 ? GOAL_HALF : -(HALF_W + WALL_T)
       // Rivets keyed to the post's world x, so they line up across the goal.
-      const postMat = new MeshBasicMaterial({
-        map: makeSteelTexture(postLen, sx > 0 ? GOAL_HALF : -HALF_W),
-      })
+      const postMat = new MeshBasicMaterial({ map: makeSteelTexture(postLen, startX) })
       const post = new Mesh(new BoxGeometry(postLen, WALL_H, WALL_T), postMat)
       post.position.set(
         sx * (GOAL_HALF + postLen / 2),
@@ -86,6 +95,11 @@ export function buildTable(): Group {
         sz * (HALF_L + WALL_T / 2),
       )
       group.add(post)
+
+      // Cap the post top too, so the rail highlight wraps the corner.
+      const cap = new Mesh(new BoxGeometry(postLen, 0.15, WALL_T), railMat)
+      cap.position.set(sx * (GOAL_HALF + postLen / 2), WALL_H, sz * (HALF_L + WALL_T / 2))
+      group.add(cap)
     }
   }
 
