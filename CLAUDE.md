@@ -107,16 +107,24 @@ it** (it made the round ball blocky). Don't reintroduce it without asking.
   eyeballs it and reports back. So: keep shape/feel constants at the **top of
   each module** and easy to tune, and expect a few iterations per visual change.
 - **Layout reference:** `docs/court-plan.svg` is a to-scale top-down plan
-  (walls, goals, ramp loops, mouths, targets, paddles) for discussing geometry.
-  Regenerate from the current constants with `node docs/court-plan.js
-  docs/court-plan.svg` after changing dimensions.
-- The **ramp is an over-the-top arch** between two wall holes (right=ours,
-  left=theirs), tuned by the shape constants at the top of `ramp.ts` (`OUT_BULGE`,
-  `CURL_Y`, `PEAK_Y`, `RIDE_LIFT`, etc.). It's a plain Catmull-Rom through 7
-  point-symmetric control points — smooth, no banking, no spiral kinks.
-- Ramp ownership is by **which mouth the ball enters** (not last hitter). Entry
-  requires the ball moving **away from the owner's end** (`ball.vz` gate in
-  `tryEnterRamp`). Exit aim/off-target is `RAMP_MISS` in `const.ts`.
+  (walls, goals, ramp loops, slots, guard blades, targets, paddles) for
+  discussing geometry. Regenerate from the current constants with `node
+  docs/court-plan.js docs/court-plan.svg` after changing dimensions (it's an ESM
+  script, mirrors `makeSlot()` from `const.ts`).
+- **Slot geometry** lives in `const.ts`: `SLOTS[0]` = right/ours, `SLOTS[1]` =
+  left/theirs, both at mid-court. Each carries its axis `a` (out of court = the
+  required entry direction), cross-normal `n`, the wall-face `z` where each jaw
+  sits, and the guard-blade capsule `fin`. `table.ts`, `ramp.ts`, `stars.ts`,
+  `physics.ts` and the plan generator all derive from `SLOTS` — change slot shape
+  there and everything follows.
+- The **ramp** is a corkscrew up outside the right wall → over-the-top arch →
+  mirrored corkscrew into the left wall, tuned by the shape constants at the top
+  of `ramp.ts` (`R`, `LOOP_TURNS`, `CROSS_Y`, `PEAK_Y`, `RIDE_LIFT`, etc.). Plain
+  point-symmetric Catmull-Rom — smooth, no kinks.
+- Ramp ownership is by **which slot the ball enters** (not last hitter). Entry
+  requires the ball travelling roughly along the slot axis (`RAMP_AIM_DOT` dot in
+  `tryEnterRamp`); the **guard blade** turns most wrong-way balls away before they
+  reach the throat. Exit aim/off-target is `RAMP_MISS` in `const.ts`.
 - Team colours `COLOR_ME` / `COLOR_THEM` live in `const.ts` (murderball glow,
   portals, targets all share them).
 - Paddle identity is by **position** (bottom = us) not loud color — palette is
